@@ -1,0 +1,253 @@
+#### USER @2026-09-24T16:17:15.592Z
+<attachment>
+buatkan folder bernama ohmyjo dengan deskripsi project
+# Deskripsi Lengkap: Terminal Emulator Ringan Berbasis Go + React
+
+## 1. Visi Aplikasi
+
+Kamu ingin membuat aplikasi terminal emulator seperti Windows Terminal, tapi dengan filosofi berbeda:
+
+> **Ringan seperti aplikasi native, fleksibel seperti aplikasi web.**
+
+Artinya:
+- Bisa menjalankan `pwsh`, `cmd`, dan `git-bash` dalam satu window.
+- Punya **Tab** seperti browser, jadi satu window bisa banyak session.
+- Punya **Side Panel** dan **Split Panel**, jadi dalam satu tab bisa dibagi 2-3 panel kiri-kanan / atas-bawah, dan tiap panel adalah session yang independen. Contoh: kiri jalan `pwsh` untuk coding, kanan jalan `git-bash` untuk git, bawah jalan `cmd`.
+- Bisa di-custom sesuka hati: tema warna, font, transparansi, background image, posisi side panel, keybinding, profil shell.
+
+Untuk mencapai itu, arsitekturnya dibagi dua:
+
+**Otak = Go, Wajah = React.**
+
+Go mengurus semua yang berat dan dekat dengan sistem operasi. React hanya mengurus tampilan.
+
+---
+
+## 2. Kenapa Go Lebih Ringan Daripada Full JS
+
+Kalau terminal full JS biasanya pakai Electron + Node.js + node-pty. Itu berat karena:
+
+1.  **Harus bawa Chromium + Node.js.** Setiap aplikasi Electron bawa browser utuh, ukurannya 150-200MB, RAM idle saja bisa 200-300MB.
+2.  **Node.js single-thread event loop** kurang efisien untuk handle banyak PTY yang streaming output terus-menerus. Butuh library native tambahan.
+3.  **Startup lambat** karena harus load Chromium dulu.
+
+Dengan Go, keuntungannya:
+
+1.  **Binary tunggal dan native.** Go di-compile langsung ke machine code Windows (.exe). Tidak butuh runtime. Hasil akhir 8-20MB, bukan 150MB.
+2.  **Goroutine sangat murah.** Untuk 10 panel terminal, Go cukup buat 20 goroutine kecil (satu untuk baca output, satu untuk jaga process). RAM per session hanya kilobytes, bukan megabytes. Node.js jauh lebih boros untuk kasus ini.
+3.  **Startup instan.** Aplikasi Go nyala dalam milidetik, langsung spawn shell. Tidak nunggu browser loading.
+4.  **Manajemen proses lebih stabil.** Go punya kontrol langsung ke OS API Windows seperti ConPTY, process ID, kill signal, environment variable, tanpa perantara Node.
+5.  **React tetap dipakai, tapi hanya sebagai UI.** React-nya tidak jalan di Chromium berat, tapi di WebView ringan sistem (WebView2 di Windows yang sudah ada). Jadi kamu dapat fleksibilitas custom UI ala web, tapi tanpa beban Electron.
+
+Framework penghubung Go + React yang paling cocok untuk konsep ini adalah model **Wails**: Go jadi backend server, React jadi frontend yang ditempel dalam window native yang ringan.
+
+---
+
+## 3. Arsitektur Keseluruhan 3 Lapisan
+
+Bayangkan aplikasi sebagai 3 lantai gedung:
+
+**Lantai Bawah: Core Engine (Go murni)**
+Ini yang berhubungan dengan Windows. Tugasnya: membuat PTY, menjalankan pwsh/cmd/bash, membaca output biner dari shell, mengirim ke atas, menerima ketikan dari atas untuk diteruskan ke shell, resize ukuran terminal, kill process saat tab ditutup.
+
+**Lantai Tengah: Jembatan Komunikasi (WebSocket + Event)**
+Go dan React tidak bisa ngobrol langsung, jadi perlu jembatan. Jembatannya adalah koneksi WebSocket lokal dua arah yang selalu nyala. Ditambah HTTP API sederhana untuk operasi sekali jalan seperti baca config, list font, list tema.
+
+**Lantai Atas: Presentation (React + xterm.js)**
+React tidak tahu apa itu process atau PTY. Dia hanya tahu: "saya punya kotak terminal dengan ID unik, saya tampilkan teks, kalau user mengetik saya kirim teks". Render teks terminal memakai library xterm.js, yaitu mesin render terminal yang sama dipakai VS Code. Jadi tampilannya akurat mendukung warna, unicode, cursor, dll.
+
+Alur data selalu begini:
+User mengetik di React -> dikirim via WebSocket ke Go -> Go teruskan ke shell (pwsh/cmd) -> Shell menjawab output -> Go baca -> Go kirim via WebSocket ke React dengan ID yang tepat -> React tampilkan di panel yang tepat.
+
+Karena setiap panel punya ID unik, tidak akan tertukar walau ada 10 panel jalan bareng.
+
+---
+
+## 4. Backend Go: Modul-Modulnya
+
+Backend Go bisa dibayangkan sebagai 6 manajer kecil:
+
+**1. PTY Manager**
+Ini jantungnya. Di Windows modern, semua terminal (termasuk Windows Terminal) pakai teknologi bernama ConPTY. Tugas manajer ini adalah meminta ke Windows: "buatkan saya pseudo-terminal dengan ukuran 120 kolom x 30 baris". Setelah dapat, dia jalankan file exe shell di dalamnya.
+
+**2. Shell Profile Resolver**
+Tugasnya mendeteksi di mana lokasi shell terinstall. Dia tidak hardcode, tapi mencari secara cerdas:
+- Untuk `cmd`: selalu ada di system32, gampang.
+- Untuk `powershell`: powershell lama versi 5.1.
+- Untuk `pwsh`: PowerShell 7 modern, biasanya di Program Files, tapi bisa beda path. Resolver akan cek registry dan path umum.
+- Untuk `git`: Git Bash biasanya di Program Files/Git/bin/bash.exe. Resolver juga hafal kalau user install portable.
+User juga bisa daftarkan shell custom sendiri seperti WSL, Nushell, atau SSH di file setting.
+
+**3. Session Registry**
+Semacam papan tulis yang mencatat semua session hidup. Setiap session dicatat: ID uniknya apa, milik tab mana, milik panel mana, shell apa, process ID berapa, statusnya hidup atau mati. Saat user tutup tab, registry yang perintah matikan process-nya biar tidak jadi zombie.
+
+**4. Input-Output Pump**
+Untuk setiap session, ada dua jalur goroutine:
+- Jalur baca: standby terus, begitu shell mengeluarkan output sekecil apapun langsung diteruskan ke frontend. Dibuat non-blocking agar satu panel yang banjir output (misal `ping -t`) tidak bikin panel lain freeze.
+- Jalur tulis: menerima ketikan user dan menempelkannya ke shell.
+- Jalur resize: kalau user drag pembatas split panel sehingga ukuran berubah, info kolom-baris baru dikirim ke ConPTY agar tampilan `vim` atau `htop` tidak rusak.
+
+**5. Config & Theme Loader**
+Mengurus file setting milik user. File ini dibaca saat startup, dan diawasi perubahannya. Kalau user edit dan save, aplikasi langsung berubah tanpa restart (hot reload). Mengurus validasi agar kalau user salah tulis setting, aplikasi tidak crash tapi kembali ke default.
+
+**6. System Service**
+Layanan tambahan: dapat info working directory saat ini, list font yang terinstall, info git branch, buka file dialog, simpan history perintah.
+
+---
+
+## 5. Frontend React: Modul-Modulnya
+
+Frontend React bisa dibayangkan sebagai 5 komponen visual:
+
+**1. Terminal Renderer**
+Setiap panel adalah satu instance xterm.js yang independen. Dia punya setting font, ukuran font, warna cursor, blink, line height sendiri-sendiri. Tugasnya hanya render karakter dan menangani seleksi teks + copy paste.
+
+**2. Tab Bar Manager**
+Bar di atas seperti browser. Mendukung tambah tab baru dengan pilihan shell, rename tab (double click), drag reorder tab, tutup tab dengan tombol X, preview kalau hover, dan warna dot penanda kalau ada proses jalan. Shortcut seperti Ctrl+T, Ctrl+W, Ctrl+Tab didukung penuh dan bisa diganti.
+
+**3. Split Pane Engine**
+Ini layout manager pakai flexbox. Satu tab bisa punya layout tree: misalnya dibagi vertikal jadi dua, lalu panel kanan dibagi horizontal lagi jadi dua. Setiap daun dari tree adalah terminal renderer. User bisa drag garis pembatas untuk resize, dan ukuran baru otomatis dilaporkan ke Go. Setiap panel punya header mini: nama shell, icon, tombol maximize, close, dan restart session.
+
+**4. Side Panel**
+Panel samping yang bisa di-toggle show/hide. Isinya bukan terminal, tapi alat bantu. Konsepnya seperti VS Code. Isinya dibagi beberapa mode tampilan:
+- *Sessions:* daftar semua session hidup di semua tab. Bisa lompat ke session, kill, restart, duplikat.
+- *Profiles:* tombol cepat buat session baru: Pwsh, Cmd, Git Bash, plus custom.
+- *Snippets & Commander:* simpan perintah favorit, klik langsung dikirim ke panel aktif.
+- *Explorer & Git:* mini info folder aktif dan status git, tombol cepat open in explorer.
+- *Settings Editor:* UI untuk ubah tema tanpa edit file manual.
+Side panel ini fully custom: bisa di kiri atau kanan, bisa lebarnya diubah, bisa auto-hide.
+
+**5. Theme & Customization Engine**
+Semua tampilan diatur dari satu pusat tema. Yang bisa dicustom:
+- Warna: background, foreground, warna ANSI 16 warna, warna tab aktif, warna border panel.
+- Font: family, size, ligature, line height, letter spacing.
+- Efek: opacity / transparansi, blur acrylic ala Windows 11, background image dengan opacity terpisah, padding terminal, border radius.
+- Perilaku: startup shell default, working directory default, copy on select, right click paste, bell sound.
+- Keybinding: semua shortcut bisa diganti user.
+
+---
+
+## 6. Jembatan Go ke React
+
+Komunikasinya dibagi dua jenis:
+
+**A. Perintah Sekali Jalan (Request-Response)**
+Dipakai untuk: buat session baru, tutup session, resize, baca config, simpan config. React minta, Go jawab berhasil atau gagal.
+
+**B. Streaming Dua Arah (WebSocket)**
+Dipakai untuk lalu lintas padat:
+- Arah naik (React ke Go): setiap ketikan keyboard, termasuk panah, tab, Ctrl+C, dikirim sebagai potongan data mentah beserta ID panel tujuannya.
+- Arah turun (Go ke React): setiap output dari shell dikirim sebagai potongan teks beserta ID panel asalnya. React tinggal menempelkan ke renderer yang ID-nya cocok.
+
+Kenapa pakai ID? Agar satu koneksi WebSocket bisa melayani 10 panel sekaligus tanpa bingung. Ibarat kantor pos dengan nomor kamar.
+
+---
+
+## 7. Model Data Tab dan Panel
+
+Konsep intinya sederhana:
+
+- **Session** adalah satu proses shell hidup (satu pwsh.exe yang jalan). Punya ID unik.
+- **Pane** adalah satu kotak visual di layar. Satu pane selalu menampilkan tepat satu session. Kalau pane di-split, session lama tetap hidup, dan dibuat session baru untuk pane baru.
+- **Tab** adalah kumpulan pane dengan satu layout. Satu tab bisa punya 1 pane, atau 3 pane hasil split.
+- **Window** adalah kumpulan tab.
+
+Jadi hirarkinya: Window berisi banyak Tab, Tab berisi banyak Pane, Pane menampilkan satu Session.
+
+Keuntungannya: user bisa tutup tab tanpa matikan session (session pindah ke background), atau pindahkan pane dari tab A ke tab B hanya dengan memindahkan ID, tanpa restart shell. Sangat fleksibel.
+
+---
+
+## 8. Dukungan pwsh, cmd, dan git
+
+Ketiga shell ini punya sifat berbeda, jadi backend Go harus memperlakukannya sedikit berbeda tapi tetap dalam satu antarmuka yang sama:
+
+- **cmd.exe:** shell paling tua, encoding-nya bukan UTF-8 tapi CP850. Go harus menerjemahkan encoding agar karakter box-drawing tidak rusak. Startup paling cepat.
+- **powershell.exe / pwsh.exe:** modern, support UTF-8, support warna 24-bit, support command completion canggih. Butuh environment variable khusus agar prompt-nya bagus. pwsh startup sedikit lebih lambat, jadi Go perlu strategi lazy-load.
+- **git-bash (bash.exe):** sebenarnya Linux shell yang di-port ke Windows. Path-nya gaya Linux (/c/Users/...). Go harus menerjemahkan path Windows ke path Unix saat spawn, dan menangani signal Ctrl+C yang beda dengan cmd.
+
+Dari sisi user, perbedaannya disembunyikan. User hanya pilih profil "PowerShell", "CMD", "Git Bash" dari dropdown, dan Go yang mengurus detail teknisnya.
+
+---
+
+## 9. Sistem Custom Sesuka Hati
+
+Customisasi dibagi 3 level:
+
+**Level 1: Untuk Pengguna Biasa (via UI)**
+Ganti tema terang/gelap, ganti font size dengan Ctrl+Plus/Minus, ganti opacity dengan slider, pilih background image, pindah side panel kiri/kanan. Semua lewat Settings UI, langsung terlihat.
+
+**Level 2: Untuk Power User (via file setting)**
+File setting dalam format JSON yang mudah dibaca. Isinya: daftar profil shell (nama, icon, warna, perintah start, folder awal), daftar tema, daftar keybinding, konfigurasi layout default saat aplikasi dibuka (misal: selalu buka 2 tab, tab 1 split pwsh+git).
+
+**Level 3: Untuk Themer (via CSS Variable)**
+Karena UI-nya React, seluruh warna dan efek sebenarnya adalah CSS variable. Themer bisa buat file tema baru hanya dengan mendefinisikan ulang variable, tanpa sentuh Go sama sekali. Bisa bikin tema ala Dracula, Tokyo Night, Catppuccin, atau tema transparan anime.
+
+---
+
+## 10. Alur Hidup Aplikasi Dari Klik Sampai Tutup
+
+1.  **Startup:** User double-click exe. Go nyala, baca file setting, siapkan WebSocket server lokal, buka window native ringan, load React. React minta: "buatkan saya session default". Go spawn pwsh, kembalikan ID, React tampilkan.
+2.  **Buka Tab Baru:** User tekan Ctrl+T, pilih Git Bash. React minta session baru tipe git. Go spawn bash.exe baru, daftarkan di registry, mulai pump I/O. React buat tab baru.
+3.  **Split Panel:** User tekan Alt+Shift+D. React tidak buat tab baru, tapi belah pane aktif jadi dua. Minta session baru tipe cmd. Go spawn cmd.exe. React tampilkan dua renderer berdampingan.
+4.  **Ketik Perintah:** User ketik `git status` di panel kanan. Setiap huruf dikirim via WebSocket ke Go dengan ID panel kanan. Go teruskan ke bash.exe itu saja. Outputnya kembali hanya ke panel kanan.
+5.  **Resize Window:** User maximize window. React hitung ulang kolom-baris tiap pane, kirim info resize ke Go. Go update ukuran ConPTY masing-masing.
+6.  **Tutup:** User tutup pane. React beri tahu Go. Go kill process tersebut, hentikan goroutine-nya, hapus dari registry, bebaskan memori. Tidak ada sisa.
+
+---
+
+## 11. Kenapa Ini Tetap Ringan Walau UI-nya React
+
+Kuncinya adalah **pemisahan beban**:
+- React hanya render teks yang terlihat di layar (viewport), bukan seluruh history 10.000 baris. History disimpan efisien di memori xterm dengan buffer lingkaran.
+- Go tidak pernah render UI, hanya memindahkan byte. CPU-nya kecil.
+- WebView2 memakai engine Edge yang sudah ada di Windows 10/11, jadi tidak bawa browser sendiri. Beda dengan Electron yang bawa Chromium 150MB.
+- Total RAM idle ditargetkan di bawah 80MB (Go ~15MB + WebView ~50MB), dibanding Windows Terminal ~100MB dan Electron terminal bisa 300MB+. Ukuran installer ditargetkan di bawah 15MB.
+
+---
+
+## 12. Roadmap Pengembangan Bertahap Agar Tidak Pusing
+
+**Tahap 1 - MVP Terminal Tunggal:**
+Satu window, satu panel, bisa ganti shell pwsh/cmd/git, bisa ketik dan dapat output benar, copy paste jalan. Ini fondasi. Kalau ini belum stabil, jangan lanjut.
+
+**Tahap 2 - Tab:**
+Tambah multi tab, tiap tab session independen, shortcut pindah tab, persist tab terakhir dibuka.
+
+**Tahap 3 - Split & Side Panel:**
+Tambah split vertikal/horizontal, drag resize, side panel berisi list session dan profil.
+
+**Tahap 4 - Custom System:**
+File setting + theme engine + keybinding editor + background image + transparency.
+
+**Tahap 5 - Fitur Pro:**
+Command palette (Ctrl+Shift+P), search di dalam terminal (Ctrl+F), snippets manager, SSH profile dengan remembered host, WSL auto-detect, split otomatis saat startup, plugin system sederhana.
+
+---
+
+Singkatnya, desain **Go di belakang, React di depan** memberimu yang terbaik dari dua dunia: kecepatan dan keringanan aplikasi native, plus kebebasan custom tampilan seperti aplikasi web.
+
+Kalau kamu mau, saya bisa lanjutkan deskripsi detail untuk salah satu bagian spesifik, misalnya:
+1. Detail isi Side Panel yang ideal
+2. Detail struktur file setting dan tema
+3. Detail daftar shortcut default yang enak
+4. Detail perbandingan Wails vs WebView murni untuk proyek ini
+
+Mau dilanjutkan ke bagian mana dulu?
+
+</attachment> buatkan project nya untuk base windows dlu
+
+#### USER @2026-09-24T16:35:12.085Z
+cek apakah sudah bisa?
+
+#### USER @2026-09-24T16:37:10.775Z
+cek apakah sudah bisa?
+
+#### USER @2026-09-24T16:53:23.132Z
+cek apakah sudah bisa
+
+#### USER @2026-09-24T16:54:22.666Z
+continue
+
+#### USER @2026-09-24T16:55:39.011Z
+continue

@@ -1,0 +1,23 @@
+# Build output: the frontend bundle is embedded into the Go binary at build
+# time, so the compiled result is never committed.
+/ohmyjo.exe
+/ohmyjo
+*.exe
+# Go's linker writes this next to `-o ohmyjo.exe` when the target is locked by
+# a running instance, which is the normal case while developing the app.
+*.exe~
+
+# Node is a build-time tool for the UI only — the shipped binary is pure Go and
+# bundles the compiled assets, so nothing here is needed to run it. Vite writes
+# the bundle to internal/webui/dist, which IS embedded and committed.
+/web/node_modules/
+/web/tsconfig.tsbuildinfo
+
+# Local scratch
+/.assistant-text.txt
+/.win-*.ps1
+/.win-*.png
+/.p??.txt
+/.probe*/
+/.pick-probe.txt
+/.session-tail.txt
