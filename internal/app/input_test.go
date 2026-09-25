@@ -24,7 +24,7 @@ func (f *fakePaneSession) Close() error       { return nil }
 
 // viewWithPane builds the smallest view that can route a key: one tab holding
 // one pane, already attached to a recording session. The window is left nil, so
-// the repaint the input path requests has nowhere to go — the test asserts the
+// the repaint the input path requests has nowhere to go. The test asserts the
 // bytes that reach the shell, which is where the duplication showed up.
 func viewWithPane() (*View, *fakePaneSession) {
 	p := NewPane(80, 24, ui.NewStyleResolver(ui.DefaultPalette()), ui.Metrics{CellW: 8, Ascent: 12, Descent: 3, LineH: 15}, 0)
@@ -71,7 +71,7 @@ func TestEncodedKeySendsOneCopy(t *testing.T) {
 // leaking a control byte.
 //
 // A chord is translated by Windows like any other key press, so Ctrl+Shift+B
-// arrives as WM_KEYDOWN followed by a WM_CHAR carrying STX — the same duplicate
+// arrives as WM_KEYDOWN followed by a WM_CHAR carrying STX, the same duplicate
 // the encoded keys are guarded against, but for a key the application consumed
 // rather than one it encoded. The shell must receive nothing at all: a stray
 // byte at a prompt is invisible until the user presses Enter, and then it is

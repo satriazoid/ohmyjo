@@ -38,6 +38,11 @@ type Pane struct {
 	sess paneSession
 	// cancel detaches this pane from the session's output fanout.
 	cancel func()
+	// release ends the session through the manager, so closing a pane also
+	// drops it from the registry the panel's rows are built from. Kept apart
+	// from sess so Close ends the session the registry knows about rather than
+	// the handle it happens to hold.
+	release func()
 
 	// exited and exitCode describe the shell's end state, so a dead pane is
 	// never mistaken for an idle one.
@@ -243,6 +248,9 @@ func (p *Pane) Attach(mgr *session.Manager, prof config.Profile, cwd string) err
 
 	p.mu.Lock()
 	p.sess, p.id, p.name = sess, id, prof.Name
+	// The pane does not keep the manager, so the id is bound to its owner here,
+	// once, rather than looked up again on every close.
+	p.release = func() { _ = mgr.Close(id) }
 	replay, cancel := sess.Subscribe(p.onOutput)
 	p.cancel = cancel
 	if replay != "" {
@@ -327,21 +335,26 @@ func (p *Pane) Resize(cols, rows int) {
 	_ = sess.Resize(cols, rows)
 }
 
-// Close detaches from the session and kills the shell.
+// Close detaches from the session and ends it.
+//
+// The session is ended through the manager rather than through the session
+// handle, so it leaves the registry as it dies. Closing the handle directly
+// killed the shell but left it listed: the panel's rows come from the registry,
+// so a session ended from the panel would keep its row for the rest of the run
+// and the row could never be cleared.
 func (p *Pane) Close() {
 	p.mu.Lock()
-	cancel, sess := p.cancel, p.sess
-	p.cancel, p.sess, p.onDirty = nil, nil, nil
+	cancel, release := p.cancel, p.release
+	p.cancel, p.sess, p.onDirty, p.release = nil, nil, nil, nil
 	p.mu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
-	if sess != nil {
-		_ = sess.Close()
+	if release != nil {
+		release()
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Scrolling
 
 // Scroll moves the viewport by delta lines, positive meaning back into history,
@@ -403,7 +416,6 @@ func (p *Pane) ScrollToContentLine(top int) {
 	p.grid.Invalidate()
 }
 
-// ---------------------------------------------------------------------------
 // Selection
 
 // HasSelection reports whether anything is selected.
@@ -636,7 +648,6 @@ func (p *Pane) selectionSpan(row int) (c0, c1 int, ok bool) {
 	return c0, c1, true
 }
 
-// ---------------------------------------------------------------------------
 // Painting
 
 // Paint draws the pane: the grid, the selection over it, the scrollbar, and the
@@ -755,7 +766,6 @@ func (p *Pane) paintExit(s ui.Surface, theme ui.Palette) {
 		ui.Style{FG: theme.UIForeground, BG: theme.UIBackgroundAlt})
 }
 
-// ---------------------------------------------------------------------------
 // Helpers
 
 func isWordRune(r rune) bool {

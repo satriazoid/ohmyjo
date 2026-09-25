@@ -28,7 +28,7 @@ const attachParentProcess = ^uintptr(0)
 // A GUI build is linked as a Windows-subsystem binary (see the Makefile), so
 // double-clicking it never opens a console window. A plain `go build` produces a
 // console-subsystem binary instead, and Windows then creates a console window
-// for it — which is exactly the "opening the terminal opens another terminal"
+// for it, which is exactly the "opening the terminal opens another terminal"
 // behaviour, so the console is detached here as well.
 //
 // With no console left there is nowhere for the log to go, so a windowed run

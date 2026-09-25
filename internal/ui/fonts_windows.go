@@ -49,8 +49,8 @@ var (
 // so creating one per lookup would leak a slot on every config reload.
 //
 // It must compare the enumerated face name against the request. EnumFontFamiliesExW
-// does not fail for an unknown name — it enumerates every installed font instead
-// — so a callback that accepted the first result would report every font as
+// does not fail for an unknown name; it enumerates every installed font instead
+// so a callback that accepted the first result would report every font as
 // installed, including ones that are not, and GDI would then substitute a
 // proportional face for a name the user believed was monospaced.
 var fontEnumCallback = syscall.NewCallback(func(enumFont, _, _, _ uintptr) uintptr {
@@ -155,7 +155,7 @@ func ResolveMonoFamily(stack string) string {
 
 // isMonospaced reports whether a family's glyphs all share one advance width.
 // A spread of probe characters is used rather than the pitch bits in
-// TEXTMETRIC, because the pitch bits are unreliable for linked fonts — notably
+// TEXTMETRIC, because the pitch bits are unreliable for linked fonts, notably
 // for CJK faces, where GDI reports variable pitch regardless.
 func isMonospaced(name string) bool {
 	hdc, _, _ := procGetDC.Call(0)

@@ -142,7 +142,7 @@ type fontSet struct {
 //
 // Drawing into memory rather than straight at the window is what keeps this
 // cheap: a full repaint is one ExtTextOutW per same-colour run per row plus a
-// single BitBlt, instead of one GDI call per cell — the per-cell shape is two
+// single BitBlt, instead of one GDI call per cell. The per-cell shape is two
 // orders of magnitude slower.
 type GDI struct {
 	mem    uintptr // memory DC, owns the selected font and bitmap
@@ -172,7 +172,7 @@ func NewGDI(width, height int) (*GDI, error) {
 		return nil, errCreateDC
 	}
 	// cur starts at -1, not 0: FontMono is 0, so a zero value would claim the
-	// mono slot was already selected and no font would ever be applied — leaving
+	// mono slot was already selected and no font would ever be applied, leaving
 	// GDI's proportional default in place and misaligning every cell.
 	g := &GDI{mem: mem, sets: map[FontID]*fontSet{}, cur: -1}
 	g.Resize(width, height)
@@ -185,8 +185,8 @@ func NewGDI(width, height int) (*GDI, error) {
 
 // ConfigureFont creates or replaces a font slot. A family that is not installed
 // falls back through the stack and finally to the renderer's monospace default,
-// because CreateFontW silently substitutes an arbitrary — possibly
-// proportional — face for an unknown name, which would misalign the grid.
+// because CreateFontW silently substitutes an arbitrary, possibly
+// proportional, face for an unknown name, which would misalign the grid.
 func (g *GDI) ConfigureFont(id FontID, slot FontSlot) {
 	// The grid needs a face whose advances are uniform; a proportional face
 	// would make every column after the first drift.
@@ -271,7 +271,7 @@ func createFont(face string, emPx int, k fontKey) uintptr {
 	// orientation, weight, italic, underline, strikeout, charset, output
 	// precision, clip precision, quality, pitch-and-family, then the face name.
 	// Dropping any one of them shifts the face name into the wrong slot and GDI
-	// silently returns the default GUI font — proportional, and the same
+	// silently returns the default GUI font, proportional, and the same
 	// whatever family was asked for.
 	h, _, _ := procCreateFontW.Call(
 		uintptr(int32(-emPx)),

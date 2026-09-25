@@ -23,6 +23,10 @@ const (
 	panelPad = 8
 	// panelKillWidth is the width of the kill button at a row's trailing edge.
 	panelKillWidth = 30
+	// panelCloseWidth is the width of the close button in the panel's header.
+	// It matches the kill buttons below so the panel's two crosses read as the
+	// same control at two levels.
+	panelCloseWidth = 30
 	// panelEdgeWidth is the divider drawn along the panel's inner edge, which
 	// is what separates it from the panes underneath.
 	panelEdgeWidth = 1
@@ -68,6 +72,11 @@ type panelRow struct {
 	rect ui.Rect
 	kill ui.Rect
 	info session.Info
+	// active is true for the session the focused pane runs, which is the one
+	// the rest of the window is showing. Without it the list is a set of names
+	// with no answer to "which one am I looking at", and a user who has just
+	// split a pane cannot tell the new shell from the old one.
+	active bool
 }
 
 // panelShellRect is the panel at its full width, in physical pixels.
@@ -120,7 +129,28 @@ func (v *View) panelRectPhysical() ui.Rect {
 	if room := cw - panelMinColumns*cellW; width > room {
 		width = room
 	}
-	return panelShellRect(v.cfg.Sidebar.Side, width, cw, ch, v.px(tabStripHeight))
+	return panelShellRect(v.cfg.Sidebar.Side, width, cw, ch, v.stripHeightLocked())
+}
+
+// panelCloseRect is the close button in the panel's header.
+//
+// It is derived from the visible rectangle rather than stored, for the same
+// reason the rows are: a button that is drawn from one rectangle and hit-tested
+// against another is a button that stops working mid-slide. Anchoring it to the
+// trailing edge puts it in the panel's top-right corner whichever side the panel
+// is docked to, which is where the user looks for it.
+func (v *View) panelCloseRect(vis ui.Rect) ui.Rect {
+	if vis.Empty() {
+		return ui.Rect{}
+	}
+	w := v.px(panelCloseWidth)
+	pad := v.px(panelPad)
+	if vis.W < 2*pad+w {
+		return ui.Rect{}
+	}
+	h := v.px(panelHeaderHeight) - v.px(panelPad)
+	y := vis.Y + (v.px(panelHeaderHeight)-h)/2
+	return ui.Rect{X: vis.X + vis.W - pad - w, Y: y, W: w, H: h}
 }
 
 // panelVisibleRectLocked is the on-screen part of the panel, empty when it is
@@ -175,6 +205,20 @@ func (v *View) closePanelLocked() {
 	v.win.KillTimer(panelStepTimerID)
 }
 
+// closeSidebarLocked closes the panel the way the user's own close button does:
+// it animates shut rather than snapping.
+//
+// closePanelLocked is the opposite case: a window going away cannot wait for
+// an animation, so the two are kept apart instead of one growing a flag.
+func (v *View) closeSidebarLocked() {
+	if !v.panel.open {
+		return
+	}
+	v.panel.open = false
+	v.win.SetTimer(panelStepTimerID, panelStepInterval)
+	v.win.Invalidate()
+}
+
 // panelRowsLocked lists the sessions the panel shows, in creation order, with
 // their geometry. The returned slice is scratch space owned by the view and is
 // only valid until the next call.
@@ -199,19 +243,43 @@ func (v *View) panelRowsLocked() []panelRow {
 	}
 	y := vis.Y + v.px(panelHeaderHeight)
 	limit := vis.Y + vis.H
+	active := v.focusedSessionIDLocked()
 	for _, info := range infos {
 		if y+rowH > limit {
 			break
 		}
 		row := panelRow{
-			rect: ui.Rect{X: vis.X + pad, Y: y, W: vis.W - 2*pad, H: rowH},
-			info: info,
+			rect:   ui.Rect{X: vis.X + pad, Y: y, W: vis.W - 2*pad, H: rowH},
+			info:   info,
+			active: active != "" && info.ID == active,
 		}
 		row.kill = ui.Rect{X: row.rect.X + row.rect.W - killW, Y: y, W: killW, H: rowH}
 		v.panel.rows = append(v.panel.rows, row)
 		y += rowH + gap
 	}
 	return v.panel.rows
+}
+
+// focusedSessionIDLocked is the session the focused pane runs: the one the
+// window is actually showing. It is the single answer to "which session is
+// active", used both to mark the panel's row and to decide whether a row the
+// user picked is already the one in front.
+//
+// A maximized pane covers its tab's other panes, so it is the one being looked
+// at regardless of where the focus happens to be.
+func (v *View) focusedSessionIDLocked() string {
+	if v.active < 0 || v.active >= len(v.tabs) {
+		return ""
+	}
+	t := v.tabs[v.active]
+	p := t.focus
+	if t.maximized != nil {
+		p = t.maximized
+	}
+	if p == nil {
+		return ""
+	}
+	return p.ID()
 }
 
 // panelRowHit resolves a point to the row under it and, when the point landed on
@@ -233,15 +301,59 @@ func (v *View) panelRowHit(x, y int) (row panelRow, kill bool, ok bool) {
 // click that fell through to the panes would start a selection under the panel,
 // and the user cannot see what they are selecting.
 func (v *View) panelClickLocked(x, y int) bool {
-	if !v.panelVisibleRectLocked().Contains(x, y) {
+	vis := v.panelVisibleRectLocked()
+	if !vis.Contains(x, y) {
 		return false
+	}
+	// The header's close button is resolved before the rows, so its band is not
+	// also read as the top of the list.
+	if close := v.panelCloseRect(vis); !close.Empty() && close.Contains(x, y) {
+		v.closeSidebarLocked()
+		return true
 	}
 	row, kill, ok := v.panelRowHit(x, y)
 	if ok && kill {
 		v.killSessionLocked(row.info.ID)
 		return true
 	}
+	// A row that was not killed selects its session: the user opened the list
+	// to see what is running, so pointing at a name has to be the way to get to
+	// it. A row already in front is a no-op rather than a relayout.
+	if ok {
+		v.revealSessionLocked(row.info.ID)
+	}
 	return true
+}
+
+// revealSessionLocked brings the pane that runs id into view and focuses it.
+//
+// The pane may live in a background tab or behind a maximized sibling, so
+// showing it is not just a focus change: the tab is selected, the maximized
+// pane steps aside, and the pane is given focus. Selecting a session that is
+// already in front changes nothing, so clicking the active row does not
+// reshuffle the layout under the user's cursor.
+func (v *View) revealSessionLocked(id string) {
+	if id == "" || id == v.focusedSessionIDLocked() {
+		return
+	}
+	for i, t := range v.tabs {
+		for _, p := range paneOrder(t.root) {
+			if p.ID() != id {
+				continue
+			}
+			v.active = i
+			t.focus = p
+			// A maximized pane hides the rest of its tab. Focusing a hidden
+			// pane under it would leave the user looking at the wrong shell.
+			if t.maximized != nil && t.maximized != p {
+				t.maximized = nil
+			}
+			v.blinkOn = true
+			v.layoutLocked()
+			v.win.Invalidate()
+			return
+		}
+	}
 }
 
 // killSessionLocked ends the shell a panel row stands for.
@@ -282,7 +394,7 @@ func (v *View) paintPanel(s ui.Surface) {
 	// The body is the window's darker surface and the rows sit on it in the
 	// lighter one, so the list reads as a list rather than as more terminal.
 	// It is drawn in UIBackground rather than UIBackgroundAlt because a theme
-	// may set the latter to the terminal's own background — Dracula does — and
+	// may set the latter to the terminal's own background (Dracula does), and
 	// the panel would then be invisible against the pane it covers.
 	s.Fill(vis.X, vis.Y, vis.W, vis.H, v.pal.UIBackground)
 	// The edge is drawn on the side the panel faces, so it separates the panel
@@ -300,6 +412,30 @@ func (v *View) paintPanel(s ui.Surface) {
 	s.Text(vis.X+pad, vis.Y+(v.px(panelHeaderHeight)-fm.TextH())/2, title,
 		ui.Style{FG: v.pal.UIForeground, BG: v.pal.UIBackground})
 
+	// The pointer has to be read before the header is drawn, because the close
+	// button highlights under it exactly as the kill buttons below do.
+	hx, hy := -1, -1
+	if mx, my := v.win.CursorPos(); my >= vis.Y && my < vis.Y+vis.H {
+		hx, hy = v.win.ScreenToClient(mx, my)
+	}
+
+	// The panel's own close button, in the header's top-right corner. It is
+	// drawn with the same fill-and-glyph the row kills use, so the two crosses
+	// read as the same control: this one ends the panel, those end a session.
+	if close := v.panelCloseRect(vis); !close.Empty() {
+		bg := v.pal.UIBackground
+		fg := v.pal.UIForegroundDim
+		if hx >= close.X && hx < close.X+close.W && hy >= close.Y && hy < close.Y+close.H {
+			bg = v.pal.UIAccent
+			fg = v.pal.UIBackground
+		}
+		s.Fill(close.X+1, close.Y+2, close.W-2, close.H-4, bg)
+		glyph := "\u2715"
+		tw := s.TextWidth(glyph)
+		s.Text(close.X+(close.W-tw)/2, close.Y+(close.H-fm.TextH())/2, glyph,
+			ui.Style{FG: fg, BG: bg})
+	}
+
 	rows := v.panelRowsLocked()
 	if len(rows) == 0 {
 		msg := "No sessions"
@@ -311,33 +447,43 @@ func (v *View) paintPanel(s ui.Surface) {
 
 	// The pointer highlights the row it is over, so the list reads as something
 	// the user points at rather than as a read-only report.
-	hx, hy := -1, -1
-	if mx, my := v.win.CursorPos(); my >= vis.Y && my < vis.Y+vis.H {
-		hx, hy = v.win.ScreenToClient(mx, my)
-	}
-
 	for _, row := range rows {
 		bg := v.pal.UIBackgroundAlt
-		if hx >= row.rect.X && hx < row.rect.X+row.rect.W && hy >= row.rect.Y && hy < row.rect.Y+row.rect.H {
+		fg := v.pal.UIForeground
+		// The row the window is showing is filled with the same lighter
+		// surface the pointer uses, so the list answers "which one am I looking
+		// at" without the user matching names against the tab strip. A row that
+		// is both active and under the pointer keeps that fill: it is already
+		// the one being shown, and flashing it would promise a change that a
+		// click does not make.
+		if row.active || (hx >= row.rect.X && hx < row.rect.X+row.rect.W &&
+			hy >= row.rect.Y && hy < row.rect.Y+row.rect.H) {
 			bg = v.pal.UIBorder
 		}
 		s.Fill(row.rect.X, row.rect.Y, row.rect.W, row.rect.H, bg)
 
 		// A dead session is still listed: its exit code is the reason the user
 		// opened the panel, and its kill button is what clears the row.
-		fg := v.pal.UIForeground
 		status := "running"
 		if row.info.Status != "running" {
 			fg = v.pal.UIForegroundDim
 			status = "exited"
+		}
+		// The stronger marker is a leading accent bar, the same one the active
+		// tab puts on its leading edge, so a fill that a hover also uses cannot
+		// be mistaken for the active state on its own.
+		bw := 0
+		if row.active {
+			bw = v.px(2)
+			s.Fill(row.rect.X, row.rect.Y, bw, row.rect.H, v.pal.UIAccent)
 		}
 		fm = s.SetFont(ui.FontUI)
 		label := row.info.Name
 		if label == "" {
 			label = row.info.Profile
 		}
-		text := clipText(s, label+"  "+status, row.rect.W-v.px(panelKillWidth)-pad)
-		s.Text(row.rect.X+pad, row.rect.Y+(row.rect.H-fm.TextH())/2, text,
+		text := clipText(s, label+"  "+status, row.rect.W-v.px(panelKillWidth)-pad-bw)
+		s.Text(row.rect.X+pad+bw, row.rect.Y+(row.rect.H-fm.TextH())/2, text,
 			ui.Style{FG: fg, BG: bg})
 
 		// The kill button is the row's own "x", drawn in the same accent the

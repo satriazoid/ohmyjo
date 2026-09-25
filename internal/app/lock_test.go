@@ -10,7 +10,7 @@ import (
 // messages synchronously from inside another: ShowWindow(SW_MAXIMIZE) sends
 // WM_SIZE before it returns, and the host answers WM_SIZE by calling Resize.
 // That nested call runs on the same thread and needs the lock its caller still
-// holds. A plain sync.Mutex froze the whole window there — the message pump
+// holds. A plain sync.Mutex froze the whole window there. The message pump
 // stopped, so the app went unresponsive and even the system close button did
 // nothing.
 func TestLockIsReentrant(t *testing.T) {

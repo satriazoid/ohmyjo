@@ -14,8 +14,8 @@ const (
 
 // Grid draws a vt terminal into a Surface.
 //
-// The window repaints its whole client area every frame — a partial-rect WM_PAINT
-// is not worth the bookkeeping when a full frame is one BitBlt — so the row
+// The window repaints its whole client area every frame: a partial-rect WM_PAINT
+// is not worth the bookkeeping when a full frame is one BitBlt, so the row
 // cache here is what keeps that affordable: a row is rebuilt only when the
 // emulator reports it dirty or the cache was invalidated, and a frame where one
 // line of output arrived rebuilds exactly one row.
@@ -129,7 +129,7 @@ func (g *Grid) SetPadding(pad int) {
 
 // SetVisible marks whether the pane is on screen. A hidden pane is never
 // painted, but its emulator keeps parsing output so its scrollback stays
-// current — the invariant that keeps a tab switch from blanking a terminal.
+// current, the invariant that keeps a tab switch from blanking a terminal.
 func (g *Grid) SetVisible(v bool) { g.visible = v }
 
 // Visible reports whether the pane is on screen.
@@ -272,7 +272,7 @@ func (g *Grid) Paint(s Surface, bg Color) {
 	s.Fill(g.x, g.y, g.w, g.h, bg)
 
 	// Everything below reads the emulator, so it runs under the lock. Unlock
-	// does not reset damage — the renderer owns that — which is why the damage
+	// does not reset damage (the renderer owns that), which is why the damage
 	// is consumed explicitly after the rows are built.
 	g.term.Lock()
 	g.damageLines()
@@ -325,7 +325,7 @@ func (g *Grid) CursorFits(x, y int) bool {
 // single-width glyphs. A wide glyph always gets a run of its own, drawn at its
 // exact cell position: a run's text is drawn as a single ExtTextOutW call, so a
 // wide character inside it would advance by whatever the font's fallback face
-// decides — which need not be two cells — and the rest of the row would drift.
+// decides (which need not be two cells), and the rest of the row would drift.
 func (g *Grid) buildRow(y int) {
 	line := row{text: g.lines[y].text[:0], runs: g.lines[y].runs[:0], valid: true}
 	view, ok := g.term.ViewRow(y)

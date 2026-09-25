@@ -51,8 +51,8 @@ type Info struct {
 }
 
 // ExitHook is called once when a shell exits on its own, and also when the
-// manager closes it, so that the per-session resources hanging off the id — its
-// command history, for one — are released either way.
+// manager closes it, so that the per-session resources hanging off the id (its
+// command history, for one) are released either way.
 type ExitHook func(id string, code int)
 
 // Session is a single shell process attached to a ConPTY.
@@ -355,7 +355,7 @@ func (m *Manager) List() []Info {
 }
 
 // Close kills one session and drops it from the registry. A closed session is
-// gone from the user's point of view — the pane has no shell — so keeping it in
+// gone from the user's point of view (the pane has no shell), so keeping it in
 // List would leave a dead entry in the sidebar for the rest of the run.
 func (m *Manager) Close(id string) error {
 	s, err := m.Get(id)
