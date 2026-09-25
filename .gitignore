@@ -17,3 +17,7 @@
 /.assistant-text.txt
 /.probe*/
 /.p??.txt
+
+# A working transcript of the session that built the app, dropped in the working
+# directory by the editor rather than by the project. Nothing reads it.
+/.session-users.txt
