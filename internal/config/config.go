@@ -101,8 +101,6 @@ type Theme struct {
 	UIAccent      string  `json:"uiAccent,omitempty"`
 	UITabActive   string  `json:"uiTabActive,omitempty"`
 	UITabInactive string  `json:"uiTabInactive,omitempty"`
-	UIPaneBorder  string  `json:"uiPaneBorder,omitempty"`
-	UISplitter    string  `json:"uiSplitter,omitempty"`
 }
 
 type Config struct {

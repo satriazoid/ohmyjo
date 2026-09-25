@@ -143,7 +143,10 @@ hide that also hides something else reads as a bug.
 that session. The panel's own `✕` sits in its header, anchored to the panel's
 inner edge, so it is top-right when the panel is docked right and top-left when
 it is docked left. The panel slides rather than snapping, and reserves no width:
-it floats over the panes, so opening it does not resize every shell.
+it floats over the panes, so opening it does not resize every shell. Its edge is
+outlined only where it meets the window frame: the boundary with the panes is
+left blank, since a stripe drawn there runs the panel's full height and reads as
+a bar wedged between the panel and the terminal.
 
 The row the window is showing (the focused pane's session, or the maximized
 pane's, since that is the one on screen) carries an accent bar on its leading
@@ -152,9 +155,13 @@ session forward: its tab comes to the front, its pane takes the focus, and a
 maximized sibling steps aside. Clicking the row that is already in front changes
 nothing. Ending a background session leaves the keyboard where it was.
 
-**Panes.** Drag a split's divider to resize it. Click a pane to focus it; the
-focused pane of a split is outlined. Selecting text in a pane copies it when
-`copyOnSelect` is on; right-click pastes when `rightClickPaste` is on.
+**Panes.** A split leaves a blank gap between its panes, so each reads as its own
+panel; nothing is drawn across it. Drag that gap to resize the split, and it
+highlights while the drag is in flight. Click a pane to focus it. The pane
+holding the keyboard draws a solid cursor and the others draw a hollow one,
+which is what marks the focus now that no pane is outlined. Selecting text in a
+pane copies it when `copyOnSelect` is on; right-click pastes when
+`rightClickPaste` is on.
 
 **Tooling.** `scripts/make-icon.mjs` generates `assets/ohmyjo.ico` and
 `scripts/check-icon.mjs` decodes it back and asserts the mark is what the design

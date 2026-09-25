@@ -45,7 +45,12 @@ const (
 	// hidden. The row cannot go away (it is the window's title bar), but it can
 	// shrink to what the window's own buttons need and no more.
 	stripCollapsedHeight = 26
-	splitterWidth        = 5
+	// splitterWidth is the space kept between the panes of a split. It is a
+	// gap, not a drawn divider: nothing is painted there, so the surface shows
+	// through as background and two panes read as separate panels without a
+	// line wedged between them. The whole gap is the target that resizes the
+	// split when dragged.
+	splitterWidth = 8
 	// scrollbarGutter is the strip reserved to the right of every pane for its
 	// scrollbar. Reserving it always keeps the last text column from sliding
 	// under the bar when the pane is scrolled.
@@ -57,9 +62,6 @@ const (
 	// hit-tested here. They are as tall as the strip row they sit on, which is
 	// stripHeightLocked().
 	controlWidth = 46
-	// focusBorderWidth is the outline drawn around the panes of a split tab, so
-	// the focused one is identifiable.
-	focusBorderWidth = 2
 )
 
 // blinkTimerID identifies the cursor-blink timer.
@@ -341,8 +343,6 @@ func themeSource(t config.Theme) ui.ThemeSource {
 		UIAccent:        t.UIAccent,
 		TabActive:       t.UITabActive,
 		TabInactive:     t.UITabInactive,
-		PaneBorder:      t.UIPaneBorder,
-		Splitter:        t.UISplitter,
 	}
 }
 
@@ -1815,7 +1815,7 @@ func (v *View) splitterAtLocked(x, y int) *splitDrag {
 		// Nothing is splittable while a pane covers the tab.
 		return nil
 	}
-	n := splitterAt(t.root, x, y, v.px(splitterWidth))
+	n := splitterAt(t.root, x, y)
 	if n == nil {
 		return nil
 	}
@@ -1826,27 +1826,33 @@ func (v *View) splitterAtLocked(x, y int) *splitDrag {
 	return d
 }
 
-func splitterAt(n *node, x, y, width int) *node {
+// splitterAt finds the split whose gap contains a point.
+func splitterAt(n *node, x, y int) *node {
 	if n == nil || n.pane != nil || !n.rect.Contains(x, y) {
 		return nil
 	}
-	if splitterHit(n, x, y, width) {
+	if splitterHit(n, x, y) {
 		return n
 	}
-	if got := splitterAt(n.a, x, y, width); got != nil {
+	if got := splitterAt(n.a, x, y); got != nil {
 		return got
 	}
-	return splitterAt(n.b, x, y, width)
+	return splitterAt(n.b, x, y)
 }
 
-// splitterHit reports whether a point lands on a split's divider.
-func splitterHit(n *node, x, y, width int) bool {
-	if n.axis == SplitAlongX {
-		edge := n.rect.X + int(float64(n.rect.W)*n.ratio)
-		return x >= edge-width/2 && x <= edge+width/2
+// splitterHit reports whether a point lands on a split's gap.
+//
+// The test is the gap itself, read from splitGap, so the area that resizes the
+// split is exactly the area the user can see. Deriving it from the ratio
+// instead centred the band on the gap's leading edge, leaving the last few
+// pixels of the gap inert; that went unnoticed while the gap was painted as a
+// bar, and became a dead zone once the bar was removed.
+func splitterHit(n *node, x, y int) bool {
+	gx, gy, gw, gh, ok := splitGap(n)
+	if !ok {
+		return false
 	}
-	edge := n.rect.Y + int(float64(n.rect.H)*n.ratio)
-	return y >= edge-width/2 && y <= edge+width/2
+	return x >= gx && x < gx+gw && y >= gy && y < gy+gh
 }
 
 // clampRatio keeps both halves of a split usable.
@@ -1942,19 +1948,17 @@ func (v *View) layoutLocked() {
 	for _, p := range paneOrder(t.root) {
 		p.grid.SetVisible(true)
 	}
-	v.layoutNode(t.root, ui.Rect{X: x, Y: y, W: w, H: h}, false)
+	v.layoutNode(t.root, ui.Rect{X: x, Y: y, W: w, H: h})
 }
 
 // layoutNode assigns rectangles down the tree.
 //
-// The pane rectangles are inset by the focus border only when the tab holds
-// more than one pane, so a single-pane tab reclaims those pixels for text.
-func (v *View) layoutNode(n *node, r ui.Rect, inset bool) {
+// A pane fills its node's rectangle. The only space a split leaves is the gap
+// the two children are laid out around, which is background and reads as the
+// separation between the panels.
+func (v *View) layoutNode(n *node, r ui.Rect) {
 	if n == nil {
 		return
-	}
-	if inset {
-		r = r.Inset(v.px(focusBorderWidth), v.px(focusBorderWidth))
 	}
 	n.rect = r
 	if n.pane != nil {
@@ -1973,8 +1977,8 @@ func (v *View) layoutNode(n *node, r ui.Rect, inset bool) {
 		n.a.setRect(r.X, r.Y, r.W, lead)
 		n.b.setRect(r.X, r.Y+lead+split, r.W, maxInt(0, r.H-lead-split))
 	}
-	v.layoutNode(n.a, n.a.rect, true)
-	v.layoutNode(n.b, n.b.rect, true)
+	v.layoutNode(n.a, n.a.rect)
+	v.layoutNode(n.b, n.b.rect)
 }
 
 func (n *node) setRect(x, y, w, h int) {
@@ -2016,32 +2020,29 @@ func (v *View) Paint(s ui.Surface, w, h int) {
 
 	t := v.tabs[v.active]
 	panes := paneOrder(t.root)
-	multi := len(panes) > 1
 	for _, p := range panes {
 		if !p.grid.Visible() {
 			continue
 		}
+		// The pane that holds the keyboard draws a solid cursor; the others
+		// draw theirs hollow. That is the whole focus cue: a split used to be
+		// outlined pane by pane, and those outlines ran the full width and
+		// height of every pane, reading as bars wedged between them.
+		p.grid.SetFocused(p == t.focus)
 		p.Paint(s, v.pal, v.blinkOn)
 	}
-	if multi {
-		// The divider is drawn before the borders but after the panes, because
-		// it lives in the gap between two pane rectangles that no pane covers.
-		v.paintSplitters(s, t.root)
-		// Drawn after the panes: the pane fill covers its own rectangle, so a
-		// border painted first would be erased by the pane it belongs to.
-		for _, p := range panes {
-			if p.grid.Visible() {
-				v.paintPaneBorder(s, p)
-			}
-		}
+	if v.drag != nil {
+		// Drawn after the panes so the highlight lies on top of the gap it is
+		// moving. It is the only thing ever painted between two panes.
+		v.paintSplitHighlight(s, t.root)
 	}
 	// Last, so the panel is not overpainted by the panes it floats above.
 	v.paintPanel(s)
 }
 
 // splitGap is the space a split leaves between its two children. It is read
-// from the children rather than recomputed from the ratio, so the drawn divider
-// and the drag target cannot drift apart.
+// from the children rather than recomputed from the ratio, so the blank gap,
+// the resize target, and the drag highlight cannot drift apart.
 func splitGap(n *node) (x, y, w, h int, ok bool) {
 	if n == nil || n.pane != nil || n.a == nil || n.b == nil {
 		return 0, 0, 0, 0, false
@@ -2062,26 +2063,24 @@ func splitGap(n *node) (x, y, w, h int, ok bool) {
 	return n.rect.X, top, n.rect.W, bottom - top, true
 }
 
-// paintSplitters fills the divider between the halves of every split.
+// paintSplitHighlight marks the gap that a drag is resizing.
 //
-// The panes are inset from the divider, leaving a gap that is the drag target
-// for resizing them. Left unpainted that target is invisible, so a split reads
-// as two windows that happen to touch and the drag is undiscoverable. The
-// divider under the pointer is highlighted, which is what makes it findable.
-func (v *View) paintSplitters(s ui.Surface, n *node) {
+// The gap between two panes is normally left unpainted, so it shows the surface
+// background and reads as spacing rather than as a divider. Nothing is drawn
+// there until the user is actually dragging it, at which point the highlight is
+// what tells them which edge is moving. A bar that is always on screen is the
+// thing the user asked to be rid of; this one cannot be.
+func (v *View) paintSplitHighlight(s ui.Surface, n *node) {
 	if n == nil || n.pane != nil {
 		return
 	}
-	x, y, w, h, ok := splitGap(n)
-	if ok {
-		col := v.pal.Splitter
-		if v.drag != nil && v.drag.n == n {
-			col = v.pal.UIAccent
+	if v.drag != nil && v.drag.n == n {
+		if x, y, w, h, ok := splitGap(n); ok {
+			s.Fill(x, y, w, h, v.pal.UIAccent)
 		}
-		s.Fill(x, y, w, h, col)
 	}
-	v.paintSplitters(s, n.a)
-	v.paintSplitters(s, n.b)
+	v.paintSplitHighlight(s, n.a)
+	v.paintSplitHighlight(s, n.b)
 }
 
 // paintTabs draws the tab strip.
@@ -2220,21 +2219,6 @@ func (v *View) paintControls(s ui.Surface, w int) {
 		tw := s.TextWidth(glyph)
 		s.Text(x+(bw-tw)/2, (bh-fm.TextH())/2, glyph, ui.Style{FG: fg, BG: bg})
 	}
-}
-
-// paintPaneBorder outlines an unfocused pane inside a split, so the user can
-// tell which one receives keys.
-func (v *View) paintPaneBorder(s ui.Surface, p *Pane) {
-	x, y, w, h := p.grid.Bounds()
-	bw := v.px(focusBorderWidth)
-	col := v.pal.PaneBorder
-	if v.active >= 0 && v.active < len(v.tabs) && v.tabs[v.active].focus == p {
-		col = v.pal.UIAccent
-	}
-	s.Fill(x, y, w, bw, col)
-	s.Fill(x, y+h-bw, w, bw, col)
-	s.Fill(x, y, bw, h, col)
-	s.Fill(x+w-bw, y, bw, h, col)
 }
 
 // paintSplash draws the placeholder shown while no tab is open.

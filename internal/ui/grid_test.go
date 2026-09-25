@@ -171,6 +171,41 @@ func TestGridCursorInvertsOnlyItsOwnCell(t *testing.T) {
 	}
 }
 
+// TestGridUnfocusedPaneDrawsAHollowCursor pins the cue that replaces the pane
+// outline: the pane holding the keyboard draws a solid block, and a pane that
+// does not draws only its rim. Without it a split gives no sign of which pane
+// receives keys, since neither is outlined any more.
+func TestGridUnfocusedPaneDrawsAHollowCursor(t *testing.T) {
+	surf, g, done := testGrid(t, 12, 2)
+	defer done()
+
+	pal := DefaultPalette()
+	g.term.Write([]byte("ab\x1b[1;2H"))
+	g.SetFocused(false)
+	paint(surf, g)
+
+	// The rim is the cursor, so the outline is there to be seen.
+	cx := g.originX + g.cellW
+	cy := g.originY
+	if surf.At(cx, cy) != pal.Cursor {
+		t.Error("an unfocused pane drew no cursor rim")
+	}
+	// The middle of the cell is cleared again, or the outline would be the
+	// solid block that means "this pane has the keyboard".
+	mx, my := cx+g.cellW/2, cy+g.cellH/2
+	if surf.At(mx, my) == pal.Cursor {
+		t.Error("the unfocused cursor is solid, so it claims the focus")
+	}
+
+	// The focused pane is still solid, or losing the outline would leave no
+	// cue at all.
+	g.SetFocused(true)
+	paint(surf, g)
+	if surf.At(mx, my) != pal.Cursor {
+		t.Error("the focused pane did not draw a solid cursor")
+	}
+}
+
 func TestGridGeometryMatchesTerminal(t *testing.T) {
 	_, g, done := testGrid(t, 12, 3)
 	defer done()

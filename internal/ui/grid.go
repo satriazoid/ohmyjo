@@ -47,6 +47,10 @@ type Grid struct {
 	visible bool
 	blink   bool
 	shape   int
+	// focused marks the pane that holds the keyboard. The cursor of a pane
+	// that does not is drawn hollow, which is the cue that tells the panes of a
+	// split apart now that no pane is outlined.
+	focused bool
 }
 
 // row is one rendered row: the glyph bytes and the style runs over them.
@@ -175,6 +179,11 @@ func (g *Grid) CellAt(px, py int) (cx, cy int, ok bool) {
 func (g *Grid) SetCursorShape(blink bool, shape int) {
 	g.blink, g.shape = blink, shape
 }
+
+// SetFocused marks whether this pane holds the keyboard. An unfocused pane
+// draws its cursor as an outline instead of a solid block, so a split shows
+// which pane receives keys without drawing a frame around either of them.
+func (g *Grid) SetFocused(v bool) { g.focused = v }
 
 // resize recomputes the cell grid from the pixel bounds and resizes the
 // emulator to match.
@@ -425,6 +434,14 @@ func (g *Grid) paintCursor(s Surface, x, y int) {
 		th := max(1, h/12)
 		s.Fill(cx, cy+h-th, w, th, g.styles.Cursor())
 	default:
+		// A pane without the keyboard shows its cursor as an outline. It marks
+		// where the caret is in the pane the user is not typing into, without
+		// claiming the focus that the solid block means.
+		if !g.focused {
+			s.Fill(cx, cy, w, h, g.styles.Cursor())
+			s.Fill(cx+1, cy+1, max(0, w-2), max(0, h-2), g.styles.Default().BG)
+			return
+		}
 		s.Fill(cx, cy, w, h, g.styles.Cursor())
 		if row, ok := g.term.ViewRow(y); ok && x < len(row) {
 			glyph := row[x]

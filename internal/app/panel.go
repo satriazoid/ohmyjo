@@ -27,8 +27,9 @@ const (
 	// It matches the kill buttons below so the panel's two crosses read as the
 	// same control at two levels.
 	panelCloseWidth = 30
-	// panelEdgeWidth is the divider drawn along the panel's inner edge, which
-	// is what separates it from the panes underneath.
+	// panelEdgeWidth is the thickness of the hairlines that outline the panel
+	// against the window frame. The side that faces the panes is deliberately
+	// left blank: see panelEdgeRects.
 	panelEdgeWidth = 1
 	// panelMinColumns is the narrowest a pane may become before the panel width
 	// is clamped. Forty columns is the width a shell's output still reads at,
@@ -77,6 +78,39 @@ type panelRow struct {
 	// with no answer to "which one am I looking at", and a user who has just
 	// split a pane cannot tell the new shell from the old one.
 	active bool
+}
+
+// panelEdgeRects is the hairlines that outline the panel.
+//
+// Only the sides meeting the window frame are drawn. The side meeting the panes
+// is left blank, because a line there is what the user reads as a bar wedged
+// between the panel and the terminal: it runs the panel's full height and, on
+// any theme whose border contrasts with both surfaces, it is the loudest line
+// on the screen. The panel and the pane still differ in fill, so the boundary
+// stays visible without a stripe drawn on it.
+//
+// The rectangles are returned rather than filled so that the geometry can be
+// asserted without a live window, which the paint path cannot be given.
+func (v *View) panelEdgeRects(vis ui.Rect) []ui.Rect {
+	if vis.Empty() {
+		return nil
+	}
+	ew := maxInt(1, v.px(panelEdgeWidth))
+	if ew > vis.H {
+		ew = vis.H
+	}
+	if ew > vis.W {
+		ew = vis.W
+	}
+	edges := []ui.Rect{
+		{X: vis.X, Y: vis.Y, W: vis.W, H: ew},
+		{X: vis.X, Y: vis.Y + vis.H - ew, W: vis.W, H: ew},
+	}
+	if v.cfg.Sidebar.Side == "right" {
+		// The outer edge is the window's, on the right.
+		return append(edges, ui.Rect{X: vis.X + vis.W - ew, Y: vis.Y, W: ew, H: vis.H})
+	}
+	return append(edges, ui.Rect{X: vis.X, Y: vis.Y, W: ew, H: vis.H})
 }
 
 // panelShellRect is the panel at its full width, in physical pixels.
@@ -389,7 +423,6 @@ func (v *View) paintPanel(s ui.Surface) {
 	if vis.Empty() {
 		return
 	}
-	side := v.cfg.Sidebar.Side
 
 	// The body is the window's darker surface and the rows sit on it in the
 	// lighter one, so the list reads as a list rather than as more terminal.
@@ -397,13 +430,14 @@ func (v *View) paintPanel(s ui.Surface) {
 	// may set the latter to the terminal's own background (Dracula does), and
 	// the panel would then be invisible against the pane it covers.
 	s.Fill(vis.X, vis.Y, vis.W, vis.H, v.pal.UIBackground)
-	// The edge is drawn on the side the panel faces, so it separates the panel
-	// from the panes rather than from the window frame.
-	ew := maxInt(1, v.px(panelEdgeWidth))
-	if side == "right" {
-		s.Fill(vis.X, vis.Y, ew, vis.H, v.pal.UIBorder)
-	} else {
-		s.Fill(vis.X+vis.W-ew, vis.Y, ew, vis.H, v.pal.UIBorder)
+	// Each side that meets the window frame carries its own hairline, and the
+	// side that meets the panes carries none. A single stripe down the inner
+	// edge read as a bar standing between the panel and the terminal: full
+	// height, and the highest-contrast line on the screen. The panel still
+	// needs an edge to read as a surface rather than as a smear of the pane's
+	// own background, so the frame's sides are outlined instead.
+	for _, e := range v.panelEdgeRects(vis) {
+		s.Fill(e.X, e.Y, e.W, e.H, v.pal.UIBorder)
 	}
 
 	fm := s.SetFont(ui.FontUIBold)
