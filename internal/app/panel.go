@@ -23,6 +23,10 @@ const (
 	panelPad = 8
 	// panelKillWidth is the width of the kill button at a row's trailing edge.
 	panelKillWidth = 30
+	// panelCloseWidth is the width of the close button in the panel's header.
+	// It matches the kill buttons below so the panel's two crosses read as the
+	// same control at two levels.
+	panelCloseWidth = 30
 	// panelEdgeWidth is the divider drawn along the panel's inner edge, which
 	// is what separates it from the panes underneath.
 	panelEdgeWidth = 1
@@ -120,7 +124,28 @@ func (v *View) panelRectPhysical() ui.Rect {
 	if room := cw - panelMinColumns*cellW; width > room {
 		width = room
 	}
-	return panelShellRect(v.cfg.Sidebar.Side, width, cw, ch, v.px(tabStripHeight))
+	return panelShellRect(v.cfg.Sidebar.Side, width, cw, ch, v.stripHeightLocked())
+}
+
+// panelCloseRect is the close button in the panel's header.
+//
+// It is derived from the visible rectangle rather than stored, for the same
+// reason the rows are: a button that is drawn from one rectangle and hit-tested
+// against another is a button that stops working mid-slide. Anchoring it to the
+// trailing edge puts it in the panel's top-right corner whichever side the panel
+// is docked to, which is where the user looks for it.
+func (v *View) panelCloseRect(vis ui.Rect) ui.Rect {
+	if vis.Empty() {
+		return ui.Rect{}
+	}
+	w := v.px(panelCloseWidth)
+	pad := v.px(panelPad)
+	if vis.W < 2*pad+w {
+		return ui.Rect{}
+	}
+	h := v.px(panelHeaderHeight) - v.px(panelPad)
+	y := vis.Y + (v.px(panelHeaderHeight)-h)/2
+	return ui.Rect{X: vis.X + vis.W - pad - w, Y: y, W: w, H: h}
 }
 
 // panelVisibleRectLocked is the on-screen part of the panel, empty when it is
@@ -173,6 +198,20 @@ func (v *View) closePanelLocked() {
 	v.panel.open = false
 	v.panel.slide = 0
 	v.win.KillTimer(panelStepTimerID)
+}
+
+// closeSidebarLocked closes the panel the way the user's own close button does:
+// it animates shut rather than snapping.
+//
+// closePanelLocked is the opposite case — a window going away cannot wait for
+// an animation — so the two are kept apart instead of one growing a flag.
+func (v *View) closeSidebarLocked() {
+	if !v.panel.open {
+		return
+	}
+	v.panel.open = false
+	v.win.SetTimer(panelStepTimerID, panelStepInterval)
+	v.win.Invalidate()
 }
 
 // panelRowsLocked lists the sessions the panel shows, in creation order, with
@@ -233,8 +272,15 @@ func (v *View) panelRowHit(x, y int) (row panelRow, kill bool, ok bool) {
 // click that fell through to the panes would start a selection under the panel,
 // and the user cannot see what they are selecting.
 func (v *View) panelClickLocked(x, y int) bool {
-	if !v.panelVisibleRectLocked().Contains(x, y) {
+	vis := v.panelVisibleRectLocked()
+	if !vis.Contains(x, y) {
 		return false
+	}
+	// The header's close button is resolved before the rows, so its band is not
+	// also read as the top of the list.
+	if close := v.panelCloseRect(vis); !close.Empty() && close.Contains(x, y) {
+		v.closeSidebarLocked()
+		return true
 	}
 	row, kill, ok := v.panelRowHit(x, y)
 	if ok && kill {
@@ -300,6 +346,30 @@ func (v *View) paintPanel(s ui.Surface) {
 	s.Text(vis.X+pad, vis.Y+(v.px(panelHeaderHeight)-fm.TextH())/2, title,
 		ui.Style{FG: v.pal.UIForeground, BG: v.pal.UIBackground})
 
+	// The pointer has to be read before the header is drawn, because the close
+	// button highlights under it exactly as the kill buttons below do.
+	hx, hy := -1, -1
+	if mx, my := v.win.CursorPos(); my >= vis.Y && my < vis.Y+vis.H {
+		hx, hy = v.win.ScreenToClient(mx, my)
+	}
+
+	// The panel's own close button, in the header's top-right corner. It is
+	// drawn with the same fill-and-glyph the row kills use, so the two crosses
+	// read as the same control: this one ends the panel, those end a session.
+	if close := v.panelCloseRect(vis); !close.Empty() {
+		bg := v.pal.UIBackground
+		fg := v.pal.UIForegroundDim
+		if hx >= close.X && hx < close.X+close.W && hy >= close.Y && hy < close.Y+close.H {
+			bg = v.pal.UIAccent
+			fg = v.pal.UIBackground
+		}
+		s.Fill(close.X+1, close.Y+2, close.W-2, close.H-4, bg)
+		glyph := "\u2715"
+		tw := s.TextWidth(glyph)
+		s.Text(close.X+(close.W-tw)/2, close.Y+(close.H-fm.TextH())/2, glyph,
+			ui.Style{FG: fg, BG: bg})
+	}
+
 	rows := v.panelRowsLocked()
 	if len(rows) == 0 {
 		msg := "No sessions"
@@ -311,11 +381,6 @@ func (v *View) paintPanel(s ui.Surface) {
 
 	// The pointer highlights the row it is over, so the list reads as something
 	// the user points at rather than as a read-only report.
-	hx, hy := -1, -1
-	if mx, my := v.win.CursorPos(); my >= vis.Y && my < vis.Y+vis.H {
-		hx, hy = v.win.ScreenToClient(mx, my)
-	}
-
 	for _, row := range rows {
 		bg := v.pal.UIBackgroundAlt
 		if hx >= row.rect.X && hx < row.rect.X+row.rect.W && hy >= row.rect.Y && hy < row.rect.Y+row.rect.H {
