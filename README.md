@@ -139,8 +139,8 @@ without it there would be no mouse way to move the window or close it. It does
 not touch the side panel: the panel has its own toggle on the same row, and a
 hide that also hides something else reads as a bug.
 
-**Side panel.** Lists the running sessions with their state. Each row's `×` ends
-that session. The panel's own `×` sits in its header, anchored to the panel's
+**Side panel.** Lists the running sessions with their state. Each row's `✕` ends
+that session. The panel's own `✕` sits in its header, anchored to the panel's
 inner edge, so it is top-right when the panel is docked right and top-left when
 it is docked left. The panel slides rather than snapping, and reserves no width:
 it floats over the panes, so opening it does not resize every shell.
