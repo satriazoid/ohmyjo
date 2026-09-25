@@ -355,7 +355,6 @@ func (p *Pane) Close() {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Scrolling
 
 // Scroll moves the viewport by delta lines, positive meaning back into history,
@@ -417,7 +416,6 @@ func (p *Pane) ScrollToContentLine(top int) {
 	p.grid.Invalidate()
 }
 
-// ---------------------------------------------------------------------------
 // Selection
 
 // HasSelection reports whether anything is selected.
@@ -650,7 +648,6 @@ func (p *Pane) selectionSpan(row int) (c0, c1 int, ok bool) {
 	return c0, c1, true
 }
 
-// ---------------------------------------------------------------------------
 // Painting
 
 // Paint draws the pane: the grid, the selection over it, the scrollbar, and the
@@ -769,7 +766,6 @@ func (p *Pane) paintExit(s ui.Surface, theme ui.Palette) {
 		ui.Style{FG: theme.UIForeground, BG: theme.UIBackgroundAlt})
 }
 
-// ---------------------------------------------------------------------------
 // Helpers
 
 func isWordRune(r rune) bool {

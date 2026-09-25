@@ -1,5 +1,5 @@
 // Verifies assets/ohmyjo.ico: it decodes the 256px entry and asserts the mark
-// is what the design calls for — an opaque black tile with a closed blue ring
+// is what the design calls for: an opaque black tile with a closed blue ring
 // and a black centre. Run it after regenerating the icon.
 import { readFileSync } from "node:fs";
 import { inflateSync } from "node:zlib";

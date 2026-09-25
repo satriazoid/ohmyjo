@@ -2,7 +2,7 @@
 #
 # The linker flags are not optional. Without -H=windowsgui Go emits a
 # console-subsystem executable, and Windows then creates a console window for it
-# — the application looks like it opened a second terminal next to itself, and
+# The application then looks like it opened a second terminal next to itself, and
 # the startup log lands in that window instead of the log file.
 
 $ErrorActionPreference = 'Stop'

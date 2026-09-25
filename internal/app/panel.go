@@ -208,8 +208,8 @@ func (v *View) closePanelLocked() {
 // closeSidebarLocked closes the panel the way the user's own close button does:
 // it animates shut rather than snapping.
 //
-// closePanelLocked is the opposite case — a window going away cannot wait for
-// an animation — so the two are kept apart instead of one growing a flag.
+// closePanelLocked is the opposite case: a window going away cannot wait for
+// an animation, so the two are kept apart instead of one growing a flag.
 func (v *View) closeSidebarLocked() {
 	if !v.panel.open {
 		return
@@ -394,7 +394,7 @@ func (v *View) paintPanel(s ui.Surface) {
 	// The body is the window's darker surface and the rows sit on it in the
 	// lighter one, so the list reads as a list rather than as more terminal.
 	// It is drawn in UIBackground rather than UIBackgroundAlt because a theme
-	// may set the latter to the terminal's own background — Dracula does — and
+	// may set the latter to the terminal's own background (Dracula does), and
 	// the panel would then be invisible against the pane it covers.
 	s.Fill(vis.X, vis.Y, vis.W, vis.H, v.pal.UIBackground)
 	// The edge is drawn on the side the panel faces, so it separates the panel

@@ -187,7 +187,7 @@ type createStruct struct {
 
 // windowPtrs maps a window handle to its Window. Windows delivers messages on
 // the thread that created the window, so a single map guarded by nothing more
-// than that fact is enough — but the map is still guarded, because Post and
+// than that fact is enough, but the map is still guarded, because Post and
 // Close are called from other goroutines and read it too.
 var windowPtrs = map[uintptr]*Window{}
 
@@ -464,7 +464,7 @@ func (w *Window) Invalidate() {
 }
 
 // Post queues fn to run on the window's message thread. It is how other
-// goroutines — session readers, for one — hand work to the UI without touching
+// goroutines (session readers, for one) hand work to the UI without touching
 // GDI or the window from the wrong thread.
 func (w *Window) Post(fn func()) {
 	if w.hwnd == 0 || fn == nil {

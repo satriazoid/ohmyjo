@@ -10,7 +10,7 @@ import (
 
 // The renderer's job is to put the emulator's cells onto the surface at the
 // right places with the right colours. These tests drive it through an
-// offscreen surface — no window, no session — and assert on real pixels, which
+// offscreen surface (no window, no session) and assert on real pixels, which
 // is the only way to catch the failures that matter: glyphs landing in the
 // wrong column, a colour run bleeding into its neighbour, or a proportional
 // font making every column after the first drift.
@@ -110,7 +110,7 @@ func TestGridWideGlyphCoversExactlyTwoCells(t *testing.T) {
 	}
 	// A wide glyph consumes two cells, so what follows starts at column 2.
 	if got := g.term.Cell(2, 0).Char; got != 'a' {
-		t.Fatalf("cell(2,0) = %q, want 'a' — the wide glyph consumed the wrong width", got)
+		t.Fatalf("cell(2,0) = %q, want 'a': the wide glyph consumed the wrong width", got)
 	}
 
 	paint(surf, g)

@@ -21,7 +21,7 @@ runtime.
 
 - Go 1.26 or newer (`go.mod` declares `go 1.26`).
 - Windows 10 1809 or newer for ConPTY.
-- Optional: [`rsrc`](https://github.com/akavel/rsrc) — only needed to
+- Optional: [`rsrc`](https://github.com/akavel/rsrc), only needed to
   regenerate `rsrc.syso` from `assets/ohmyjo.ico` after the icon changes. The
   generated `.syso` is committed, so an ordinary build does not need the tool.
 
@@ -43,7 +43,7 @@ the application: the app looks like it opened a second terminal, and the startup
 log lands there instead of in the log file.
 
 `go build` links every `.syso` in the package directory. Keep exactly one
-`rsrc.syso` in the repository root — a second one is a duplicate-resource link
+`rsrc.syso` in the repository root; a second one is a duplicate-resource link
 error.
 
 Tests and checks:
@@ -125,7 +125,7 @@ missing from `keybindings` keeps its default.
 `+` opens a tab, and the two diagrams beside it split the focused pane right and
 down. At the trailing edge, just inside the window buttons, two buttons are
 pinned: a small triangle hides and restores the tab bar, and a small square shows
-and hides the side panel — filled while the panel is up, hollow while it is away.
+and hides the side panel: filled while the panel is up, hollow while it is away.
 
 The two are pinned rather than flowed after the tabs, and they trade places
 exactly when the bar is hidden, so the control that brings the bar back sits
@@ -145,8 +145,8 @@ inner edge, so it is top-right when the panel is docked right and top-left when
 it is docked left. The panel slides rather than snapping, and reserves no width:
 it floats over the panes, so opening it does not resize every shell.
 
-The row the window is showing — the focused pane's session, or the maximized
-pane's, since that is the one on screen — carries an accent bar on its leading
+The row the window is showing (the focused pane's session, or the maximized
+pane's, since that is the one on screen) carries an accent bar on its leading
 edge, the same marker the active tab uses. Clicking any other row brings that
 session forward: its tab comes to the front, its pane takes the focus, and a
 maximized sibling steps aside. Clicking the row that is already in front changes

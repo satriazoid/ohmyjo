@@ -10,7 +10,7 @@ import (
 
 // The panel's slide is the one piece of geometry that both draws the panel and
 // hit-tests the clicks on it, so an error there is a panel whose rows are
-// visible but not clickable — or worse, a click that lands on a pane hidden
+// visible but not clickable, or worse, a click that lands on a pane hidden
 // under the panel. These are the invariants that keep the two in step.
 func TestPanelSlideRevealsFromTheInnerEdge(t *testing.T) {
 	shell := panelShellRect("left", 260, 1600, 1000, 34)
@@ -140,7 +140,7 @@ func TestPanelCloseButtonVanishesWhenTooNarrow(t *testing.T) {
 	}
 }
 
-// The panel's toggle on the strip is the only mouse route to the panel — the
+// The panel's toggle on the strip is the only mouse route to the panel; the
 // chord can hide it too, so losing the button loses the panel. It also has to
 // stay clear of the three things that share its row: the tab bar's toggle, the
 // window's own buttons, and the buttons that flow after the tabs.
@@ -272,7 +272,7 @@ func TestPanelToggleMarkerFollowsThePanel(t *testing.T) {
 }
 
 // The panel's rows are built from the session registry, so a session that is
-// ended must be taken out of that registry — otherwise a row the user kills
+// ended must be taken out of that registry. Otherwise a row the user kills
 // stays in the list for the rest of the run, which reads as a kill button that
 // does nothing. The pane therefore ends its session through its owner rather
 // than through the handle it holds, and says so exactly once.
@@ -316,7 +316,7 @@ func twoTabView(ids ...string) *View {
 }
 
 // The row the user is looking at has to be the marked one, or a list of several
-// shells is a list of names with no answer to "which one is in front" — which
+// shells is a list of names with no answer to "which one is in front", which
 // is what made the panel useless after a split.
 func TestPanelMarksTheSessionInFront(t *testing.T) {
 	v := twoTabView("s1", "s2")

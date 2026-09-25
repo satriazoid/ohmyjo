@@ -42,7 +42,7 @@ const (
 	// keyboard chord can hide it too, but nothing else brings it back.
 	tabPanelButtonWidth = 30
 	// stripCollapsedHeight is the height of the chrome row once the tab bar is
-	// hidden. The row cannot go away — it is the window's title bar — but it can
+	// hidden. The row cannot go away (it is the window's title bar), but it can
 	// shrink to what the window's own buttons need and no more.
 	stripCollapsedHeight = 26
 	splitterWidth        = 5
@@ -144,8 +144,8 @@ type View struct {
 	panel panelState
 
 	// tabBarHidden collapses the tab strip. The strip is also the window's
-	// title bar — the frameless window drags by it and its own minimise,
-	// maximise and close buttons are drawn on it — so hiding it keeps that
+	// title bar: the frameless window drags by it and its own minimise,
+	// maximise and close buttons are drawn on it, so hiding it keeps that
 	// row and paints only the window buttons on it. Without this the window
 	// would have no visible way to be moved or closed.
 	tabBarHidden bool
@@ -157,7 +157,7 @@ type View struct {
 	// Windows turns one key press into two messages: WM_KEYDOWN, which carries no
 	// character, and then the WM_CHAR that TranslateMessage derived from it. The
 	// encoder answers the first for the keys that have no usable WM_CHAR of their
-	// own — Enter, Tab, Backspace, Escape — so forwarding the second sends the
+	// own (Enter, Tab, Backspace, Escape), so forwarding the second sends the
 	// input twice: Enter runs the command and then opens an extra prompt,
 	// Backspace deletes two characters, and Escape reaches the shell as two
 	// escapes. The flag is owned by the message thread, the only thread that
@@ -178,8 +178,8 @@ type View struct {
 // is still holding. A sync.Mutex there deadlocks the message thread and the
 // window stops responding to everything, including the system's own close.
 //
-// Only the message thread ever locks — background goroutines hand work over
-// through Window.Post — so a same-thread re-entry is always the nested case,
+// Only the message thread ever locks (background goroutines hand work over
+// through Window.Post), so a same-thread re-entry is always the nested case,
 // never contention. It is served without touching the mutex and balanced by
 // the matching unlock.
 func (v *View) lock() {
@@ -391,7 +391,6 @@ func (v *View) allPanesLocked() []*Pane {
 	return out
 }
 
-// ---------------------------------------------------------------------------
 // Keybindings
 
 // chordKey is a key combination in the shape the config's specs describe: the
@@ -558,7 +557,6 @@ func (v *View) lookupChord(k KeyEvent, mods ui.Modifiers) (string, bool) {
 	return action, ok
 }
 
-// ---------------------------------------------------------------------------
 // Tabs and panes
 
 // NewTab creates a tab with one pane running the default profile and makes it
@@ -650,7 +648,6 @@ func (v *View) onPaneDirty(*Pane) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // ui.Host
 
 // Resize lays the window out. It is called after the client area changed and
@@ -725,7 +722,6 @@ func (v *View) Message(msg uint32, wp, lp uintptr) bool {
 	return false
 }
 
-// ---------------------------------------------------------------------------
 // Input
 
 // onKeyDown routes a key press: the application's shortcuts first, then the
@@ -748,7 +744,7 @@ func (v *View) onKeyDown(vk uintptr) bool {
 	if action, ok := v.lookupChord(k, mods); ok {
 		// The press belongs to the application, so the character Windows
 		// derives from it must not go to the shell: ToUnicode maps Ctrl+letter
-		// to a control code, so Ctrl+Shift+B would reach the shell as STX — the
+		// to a control code, so Ctrl+Shift+B would reach the shell as STX, the
 		// same class of duplicate the encoded keys above are guarded against.
 		v.pendingKey = true
 		v.runActionLocked(action)
@@ -785,7 +781,7 @@ func (v *View) onKeyDown(vk uintptr) bool {
 // onChar sends the character Windows produced for the key that was pressed. A
 // Ctrl chord produces none, so this only ever carries real text.
 //
-// A key that onKeyDown already encoded — Enter, Tab, Backspace, Escape — has
+// A key that onKeyDown already encoded (Enter, Tab, Backspace, Escape) has
 // its WM_CHAR dropped, because that character is the same input the keydown
 // already delivered. Forwarding it too would run every command twice.
 func (v *View) onChar(ch uintptr) bool {
@@ -1065,7 +1061,6 @@ func (v *View) reportMouse(p *Pane, x, y int, btn MouseButton, press bool, mods 
 	return true
 }
 
-// ---------------------------------------------------------------------------
 // Actions
 
 // runActionLocked performs a bound action. Called with v.mu held.
@@ -1467,7 +1462,6 @@ func (v *View) pasteLocked(p *Pane) {
 	_ = p.Write(Paste(text, p.Mode()&vt.ModeBracketedPaste != 0))
 }
 
-// ---------------------------------------------------------------------------
 // Chrome
 
 // chromeClickLocked handles a click on the tab strip, the window controls or
@@ -1567,7 +1561,7 @@ func (v *View) stripButtonsAt(cw int) []stripButton {
 		x += w
 	}
 	// Pinned at the strip's trailing edge rather than flowed after the tabs, so
-	// both stay reachable however many tabs there are — and so they hold the
+	// both stay reachable however many tabs there are, and so they hold the
 	// same place when the bar is hidden and restoring it is all that is left.
 	out = append(out, stripButton{x: v.tabBarButtonXAt(cw), width: tabBarButtonWidth, action: "toggleTabBar", icon: v.tabBarIcon()})
 	if panelPresent {
@@ -1606,8 +1600,8 @@ type stripButton struct {
 //
 // Hiding the tab bar takes the flowing buttons away, but the window's buttons
 // and the two pinned toggles stay, so a window narrower than this would draw
-// its own restore control off the row. It is a minimum rather than a clamp —
-// the window's width is chosen by the user or by the desktop — so the callers
+// its own restore control off the row. It is a minimum rather than a clamp:
+// the window's width is chosen by the user or by the desktop, so the callers
 // below consult it and drop what does not fit.
 func (v *View) stripCollapsedWide() int {
 	return 3*v.px(controlWidth) + v.px(tabBarButtonWidth) + v.px(tabPanelButtonWidth)
@@ -1882,7 +1876,6 @@ func (v *View) setFocusLocked(p *Pane) {
 	v.win.Invalidate()
 }
 
-// ---------------------------------------------------------------------------
 // Layout
 
 // toggleTabBarLocked hides the tab strip's row of tabs, or brings it back.
@@ -1998,7 +1991,6 @@ func (v *View) syncPaneSize(p *Pane) {
 	p.Resize(cols, rows)
 }
 
-// ---------------------------------------------------------------------------
 // Painting
 
 // Paint draws one frame: the chrome, then every visible pane of the active tab.

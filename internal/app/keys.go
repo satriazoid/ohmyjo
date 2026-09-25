@@ -69,7 +69,7 @@ func (k KeyEvent) altEscaped() bool {
 // keypad sequences, which is what makes arrows work inside full-screen programs.
 //
 // It returns nil when the key produces nothing, so callers can tell "no input"
-// from "input that happens to be empty" — the difference between swallowing a
+// from "input that happens to be empty", the difference between swallowing a
 // chord and passing it to the shell.
 func EncodeKey(k KeyEvent, mode vt.ModeFlag) []byte {
 	out := encodeKey(k, mode)
@@ -117,7 +117,7 @@ func encodeKey(k KeyEvent, mode vt.ModeFlag) []byte {
 		return []byte(seq)
 	}
 	// A printable character reaches the shell through WM_CHAR, so a keydown
-	// with no sequence and no Rune must not emit anything — emitting the raw
+	// with no sequence and no Rune must not emit anything. Emitting the raw
 	// rune here would send every keystroke twice.
 	if k.Rune != 0 {
 		return appendRune(nil, k.Rune)

@@ -93,7 +93,7 @@ func ModifiersFromWParam(wp uintptr) Modifiers {
 var procGetKeyState = user32.NewProc("GetKeyState")
 
 // ModifiersNow reads the live keyboard state. Alt is read through the menu key,
-// which is set both by a real Alt press and by the AltGr of European layouts —
+// which is set both by a real Alt press and by the AltGr of European layouts,
 // the same thing a terminal application sees.
 func ModifiersNow() Modifiers {
 	down := func(vk int) bool {
@@ -113,7 +113,7 @@ func (w *Window) ClientSize() (int, int) { return ClientSize(w.hwnd) }
 // Metrics selects a font slot and returns its geometry.
 //
 // It changes the surface's selected font, so it is only safe on the window's
-// message thread — which is also the only place layout runs.
+// message thread, which is also the only place layout runs.
 func (w *Window) Metrics(id FontID) Metrics {
 	if w.g == nil {
 		return Metrics{}

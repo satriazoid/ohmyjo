@@ -4,8 +4,8 @@ package ui
 
 import "unsafe"
 
-// ptrAt reinterprets an address that came from Windows — a window message's
-// lParam, for one — as a typed pointer.
+// ptrAt reinterprets an address that came from Windows (a window message's
+// lParam, for one) as a typed pointer.
 //
 // Windows message parameters are pointer-sized integers, not Go pointers, so
 // they cannot be carried through the type system. unsafe.Add with a nil base
