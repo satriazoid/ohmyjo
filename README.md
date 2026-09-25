@@ -155,9 +155,13 @@ session forward: its tab comes to the front, its pane takes the focus, and a
 maximized sibling steps aside. Clicking the row that is already in front changes
 nothing. Ending a background session leaves the keyboard where it was.
 
-**Panes.** Drag a split's divider to resize it. Click a pane to focus it; the
-focused pane of a split is outlined. Selecting text in a pane copies it when
-`copyOnSelect` is on; right-click pastes when `rightClickPaste` is on.
+**Panes.** A split leaves a blank gap between its panes, so each reads as its own
+panel; nothing is drawn across it. Drag that gap to resize the split, and it
+highlights while the drag is in flight. Click a pane to focus it. The pane
+holding the keyboard draws a solid cursor and the others draw a hollow one,
+which is what marks the focus now that no pane is outlined. Selecting text in a
+pane copies it when `copyOnSelect` is on; right-click pastes when
+`rightClickPaste` is on.
 
 **Tooling.** `scripts/make-icon.mjs` generates `assets/ohmyjo.ico` and
 `scripts/check-icon.mjs` decodes it back and asserts the mark is what the design

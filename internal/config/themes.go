@@ -36,8 +36,6 @@ func BuiltinThemes() map[string]Theme {
 			UIAccent:      "#7aa2f7",
 			UITabActive:   "#1a1b26",
 			UITabInactive: "#16161e",
-			UIPaneBorder:  "#2f334d",
-			UISplitter:    "#3b4261",
 		},
 		"catppuccin-mocha": {
 			Name:          "Catppuccin Mocha",
@@ -71,8 +69,6 @@ func BuiltinThemes() map[string]Theme {
 			UIAccent:      "#89b4fa",
 			UITabActive:   "#1e1e2e",
 			UITabInactive: "#181825",
-			UIPaneBorder:  "#313244",
-			UISplitter:    "#45475a",
 		},
 		"dracula": {
 			Name:          "Dracula",
@@ -106,8 +102,6 @@ func BuiltinThemes() map[string]Theme {
 			UIAccent:      "#bd93f9",
 			UITabActive:   "#282a36",
 			UITabInactive: "#21222c",
-			UIPaneBorder:  "#44475a",
-			UISplitter:    "#6272a4",
 		},
 		"one-dark": {
 			Name:          "One Dark",
@@ -141,8 +135,6 @@ func BuiltinThemes() map[string]Theme {
 			UIAccent:      "#61afef",
 			UITabActive:   "#282c34",
 			UITabInactive: "#21252b",
-			UIPaneBorder:  "#3e4451",
-			UISplitter:    "#4b5263",
 		},
 		"windows-light": {
 			Name:          "Windows Light",
@@ -176,8 +168,6 @@ func BuiltinThemes() map[string]Theme {
 			UIAccent:      "#0067c0",
 			UITabActive:   "#ffffff",
 			UITabInactive: "#ececec",
-			UIPaneBorder:  "#d7d7d7",
-			UISplitter:    "#c4c4c4",
 		},
 	}
 }

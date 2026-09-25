@@ -26,8 +26,6 @@ type Palette struct {
 	UIAccent        Color
 	TabActive       Color
 	TabInactive     Color
-	PaneBorder      Color
-	Splitter        Color
 	Danger          Color
 }
 
@@ -53,7 +51,7 @@ type paletteSource struct {
 	BrightBlue, BrightMagenta, BrightCyan, BrightWhite      string
 	UIBackground, UIBackgroundAlt, UIBorder                 string
 	UIForeground, UIForegroundDim, UIAccent                 string
-	TabActive, TabInactive, PaneBorder, Splitter            string
+	TabActive, TabInactive                                  string
 }
 
 func defaultThemeHex() paletteSource {
@@ -67,8 +65,7 @@ func defaultThemeHex() paletteSource {
 		BrightCyan: "#7dcfff", BrightWhite: "#c0caf5",
 		UIBackground: "#16161e", UIBackgroundAlt: "#1a1b26", UIBorder: "#2f334d",
 		UIForeground: "#c0caf5", UIForegroundDim: "#565f89", UIAccent: "#7aa2f7",
-		TabActive: "#1a1b26", TabInactive: "#16161e", PaneBorder: "#2f334d",
-		Splitter: "#3b4261",
+		TabActive: "#1a1b26", TabInactive: "#16161e",
 	}
 }
 
@@ -113,8 +110,6 @@ func PaletteFromTheme(t ThemeSource) Palette {
 		UIAccent:        pick(t.UIAccent, d.UIAccent),
 		TabActive:       pick(t.TabActive, d.TabActive),
 		TabInactive:     pick(t.TabInactive, d.TabInactive),
-		PaneBorder:      pick(t.PaneBorder, d.PaneBorder),
-		Splitter:        pick(t.Splitter, d.Splitter),
 	})
 }
 
@@ -126,7 +121,7 @@ type ThemeSource struct {
 	BrightBlue, BrightMagenta, BrightCyan, BrightWhite      string
 	UIBackground, UIBackgroundAlt, UIBorder                 string
 	UIForeground, UIForegroundDim, UIAccent                 string
-	TabActive, TabInactive, PaneBorder, Splitter            string
+	TabActive, TabInactive                                  string
 }
 
 func PaletteFromHex(s paletteSource) (Palette, error) {
@@ -156,8 +151,6 @@ func buildPalette(s paletteSource) Palette {
 	set(&p.UIAccent, s.UIAccent, fallback.UIAccent)
 	set(&p.TabActive, s.TabActive, fallback.TabActive)
 	set(&p.TabInactive, s.TabInactive, fallback.TabInactive)
-	set(&p.PaneBorder, s.PaneBorder, fallback.PaneBorder)
-	set(&p.Splitter, s.Splitter, fallback.Splitter)
 
 	ansi := [16][2]string{
 		{s.Black, fallback.Black}, {s.Red, fallback.Red},
