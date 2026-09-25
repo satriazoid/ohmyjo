@@ -1,4 +1,4 @@
-# Builds ohmyjo: the React frontend first, then the Go binary.
+# Builds ohmyjo: a single native Go binary, no frontend toolchain involved.
 #
 # The linker flags are not optional. Without -H=windowsgui Go emits a
 # console-subsystem executable, and Windows then creates a console window for it
@@ -10,20 +10,31 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 Push-Location $root
 try {
-    $web = Join-Path $root 'web'
-    if (-not (Test-Path (Join-Path $web 'node_modules'))) {
-        Write-Host 'installing web dependencies...'
-        npm --prefix $web install --no-fund --no-audit
+    # Windows takes the taskbar and Alt+Tab icon from the executable's resources,
+    # so the binary needs rsrc.syso beside it. The generated file is committed so
+    # an ordinary build does not depend on the rsrc tool being installed, but it
+    # is regenerated whenever the source icon is newer: a stale resource is
+    # invisible, ships the wrong mark, and is otherwise impossible to notice.
+    $ico = Join-Path $root 'assets\ohmyjo.ico'
+    $syso = Join-Path $root 'rsrc.syso'
+    if (-not (Test-Path $ico)) {
+        throw "icon is missing: $ico"
     }
-    Write-Host 'building web assets...'
-    npm --prefix $web run build
 
-    # Windows takes the taskbar/Alt+Tab icon from the exe's resources, so the
-    # .syso has to be present or the binary ships without a mark. It is built
-    # from assets/ohmyjo.ico by `rsrc -ico assets/ohmyjo.ico -o rsrc.syso` and
-    # committed, because that generation should not run on every build.
-    if (-not (Test-Path (Join-Path $root 'rsrc.syso'))) {
-        throw 'rsrc.syso is missing: regenerate it with rsrc -ico assets/ohmyjo.ico -o rsrc.syso (see scripts/make-icon.mjs)'
+    $stale = $true
+    if (Test-Path $syso) {
+        $stale = (Get-Item $ico).LastWriteTimeUtc -gt (Get-Item $syso).LastWriteTimeUtc
+    }
+    if ($stale) {
+        $rsrc = (Get-Command rsrc -ErrorAction SilentlyContinue).Source
+        if (-not $rsrc) {
+            $rsrc = Join-Path (Join-Path (go env GOPATH) 'bin') 'rsrc.exe'
+        }
+        if (-not (Test-Path $rsrc)) {
+            throw "rsrc is needed to rebuild rsrc.syso from $ico. Install it with: go install github.com/akavel/rsrc@latest"
+        }
+        Write-Host "regenerating rsrc.syso from $ico..."
+        & $rsrc -ico $ico -o $syso
     }
 
     Write-Host 'building ohmyjo.exe...'

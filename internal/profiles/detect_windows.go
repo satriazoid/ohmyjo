@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 
 	"ohmyjo/internal/config"
-	"ohmyjo/internal/system"
 )
 
 // Detect finds the shells installed on this Windows machine. Nothing here is
@@ -64,18 +64,23 @@ func Detect(home string) []config.Profile {
 			ID: "wsl", Name: "WSL", Shell: wsl,
 			Icon: "wsl", Color: "#e0af68", Builtin: true, Available: true,
 		})
+		// The distro's bash, reached through wsl.exe rather than by name: a
+		// bare "bash" on PATH is Git's, which would advertise one shell twice
+		// and label the copy wrongly.
+		out = append(out, config.Profile{
+			ID: "bash-wsl", Name: "Bash (WSL)", Shell: wsl,
+			Args: []string{"bash", "-l"},
+			Icon: "generic", Color: "#9ece6a", Builtin: true, Available: true,
+		})
 	}
 
-	for _, c := range []struct{ id, name, bin, colour string }{
-		{"nushell", "Nushell", "nu", "#13a10e"},
-		{"bash-wsl", "Bash", "bash", "#9ece6a"},
-	} {
-		if p, err := LookPath(c.bin); err == nil {
-			out = append(out, config.Profile{
-				ID: c.id, Name: c.name, Shell: p,
-				Icon: "generic", Color: c.colour, Builtin: true, Available: true,
-			})
-		}
+	// Nushell is only found on PATH, which is the only place its installer puts
+	// it.
+	if p, err := LookPath("nu"); err == nil {
+		out = append(out, config.Profile{
+			ID: "nushell", Name: "Nushell", Shell: p,
+			Icon: "generic", Color: "#13a10e", Builtin: true, Available: true,
+		})
 	}
 
 	for i := range out {
@@ -165,8 +170,12 @@ func findGitBash() string {
 func wslHasDistro(wsl string) bool {
 	// `wsl.exe -l -q` prints registered distribution names; a machine without
 	// any prints a localised "no distributions" notice and exits non-zero.
+	// CREATE_NO_WINDOW stops Windows from allocating a console for the probe.
+	// The app is built as a GUI binary, so a console program it starts would
+	// otherwise get a fresh console window that flashes as the probe runs.
+	const createNoWindow = 0x08000000
 	cmd := exec.Command(wsl, "-l", "-q")
-	system.HideConsole(cmd)
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
 	out, err := cmd.Output()
 	if err != nil {
 		return false

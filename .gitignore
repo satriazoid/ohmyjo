@@ -1,23 +1,19 @@
-# Build output: the frontend bundle is embedded into the Go binary at build
-# time, so the compiled result is never committed.
+# Build output. rsrc.syso is generated from assets/ohmyjo.ico but is committed,
+# so an ordinary build does not depend on the rsrc tool being installed; only
+# the executable itself stays out of the repository.
 /ohmyjo.exe
 /ohmyjo
 *.exe
+
 # Go's linker writes this next to `-o ohmyjo.exe` when the target is locked by
 # a running instance, which is the normal case while developing the app.
 *.exe~
 
-# Node is a build-time tool for the UI only — the shipped binary is pure Go and
-# bundles the compiled assets, so nothing here is needed to run it. Vite writes
-# the bundle to internal/webui/dist, which IS embedded and committed.
-/web/node_modules/
-/web/tsconfig.tsbuildinfo
-
-# Local scratch
+# Local scratch. Live probes drive the real window through real input events and
+# write screen captures; none of it belongs in a commit.
+/win.ps1
+/win.js
+/win/
 /.assistant-text.txt
-/.win-*.ps1
-/.win-*.png
-/.p??.txt
 /.probe*/
-/.pick-probe.txt
-/.session-tail.txt
+/.p??.txt

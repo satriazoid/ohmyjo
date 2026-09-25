@@ -1,43 +1,41 @@
-// Package app assembles the desktop application: config, sessions, local HTTP
-// server and the WebView2 window that renders the React frontend.
+// Package app assembles the desktop application: configuration, shell
+// sessions, and the native window that renders them.
+//
+// There is no browser engine anywhere in this package. The window is a plain
+// Win32 window, the terminal grids and the chrome are drawn with GDI, and the
+// shells are ConPTY processes owned directly by this process.
 package app
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"log"
 	"os"
 	"os/signal"
-	"path"
-	"strings"
 	"syscall"
 
 	"ohmyjo/internal/config"
 	"ohmyjo/internal/history"
-	"ohmyjo/internal/server"
+	"ohmyjo/internal/profiles"
 	"ohmyjo/internal/session"
-	"ohmyjo/internal/system"
-	"ohmyjo/internal/webui"
+	"ohmyjo/internal/ui"
 )
 
 // Options are the command line knobs.
 type Options struct {
-	Headless   bool
-	Port       int
-	DevServer  string
+	// Headless starts the shells and the config watcher without a window. It
+	// exists so a misbehaving shell can be diagnosed from a console, where the
+	// log is visible.
+	Headless bool
+	// ConfigPath overrides the config file location.
 	ConfigPath string
-	Cwd        string
 }
 
-// Run starts the application and blocks until the window closes (or, in
-// headless mode, until the process is signalled).
+// Run starts the application and blocks until the window closes.
 func Run(opts Options) error {
-	// Must happen before any window exists, so the WebView2 window is created
-	// at the display's real pixel density instead of being stretched (blurry).
-	enableDpiAwareness()
-	// A windowed run must not drag a console window along with it; see
-	// setupConsole.
+	// Must precede any window creation, so the window and its fonts are sized
+	// for the display's real pixel density instead of being stretched blurry.
+	ui.EnableDPIAwareness()
+	// A windowed run must not drag a console window along with it.
 	setupConsole(opts.Headless)
 
 	cfgPath := opts.ConfigPath
@@ -48,120 +46,68 @@ func Run(opts Options) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	// The shell list is resolved once at startup: it fills in each profile's
+	// absolute shell path and whether it is actually installed, neither of which
+	// the raw config has.
+	cfg := loader.Get()
+	home, _ := os.UserHomeDir()
+	cfg.Profiles = profiles.Resolve(cfg.Profiles, home)
+
 	if stopWatch, err := loader.Watch(); err != nil {
-		// Losing the watcher disables hot reload; it must not stop the app.
+		// Losing the watcher disables live reload; it must not stop the app.
 		log.Printf("config watch unavailable: %v", err)
 	} else {
 		defer stopWatch()
 	}
 
-	mgr := session.NewManager(nil)
 	hist := history.New()
 	histFile := history.OpenFile(config.HistoryPath())
-	mgr.Seed = func(id string) {
-		// A shell loads its own history file at startup; new panes get the same
-		// treatment so Up recalls commands from previous runs.
-		hist.Seed(id, histFile.Load())
-	}
-	srv := server.New(loader, mgr, system.New(), &embedAssets{fsys: webui.FS()}, hist, histFile)
-	loader.OnChange(func(*config.Config, []string) { srv.BroadcastConfig() })
-
-	url, err := srv.Listen(opts.Port)
-	if err != nil {
-		return fmt.Errorf("listen on 127.0.0.1:%d: %w", opts.Port, err)
-	}
-	log.Printf("ohmyjo %s serving %s (config %s)", server.Version, url, loader.Path())
-
-	go func() {
-		if err := srv.Serve(); err != nil {
-			log.Printf("http server: %v", err)
-		}
-	}()
-
-	// Closing the window or signalling the process must take every shell with
-	// it: a terminal that leaks pwsh.exe processes is worse than no terminal.
-	shutdown := func() {
-		mgr.Shutdown()
-		srv.Close()
-	}
-
-	target := url
-	if opts.DevServer != "" {
-		// Vite serves the UI with HMR and proxies /ws back to this server.
-		target = strings.TrimRight(opts.DevServer, "/")
-	}
+	// A shell loads its own history file at startup; new panes get the same
+	// treatment so Up recalls commands from previous runs.
+	mgr := session.NewManager(nil)
+	mgr.Seed = func(id string) { hist.Seed(id, histFile.Load()) }
+	defer mgr.Shutdown()
 
 	if opts.Headless {
+		log.Printf("ohmyjo %s headless (config %s)", Version, loader.Path())
 		waitForSignal()
-		shutdown()
 		return nil
 	}
 
-	err = runWindow(windowConfig{
-		Title:   "ohmyjo",
-		URL:     target,
-		Width:   1280,
-		Height:  800,
-		DataDir: webviewDataDir(),
-	})
-	shutdown()
-	return err
+	win, err := ui.New(ui.WindowOptions{
+		Title: "ohmyjo",
+		// A logical request, clamped at creation to the work area: a window
+		// larger than the usable desktop would put its own drag area and resize
+		// edges off screen, and a borderless window has no native caption to
+		// recover with.
+		Width:  1280,
+		Height: 800,
+		Center: true,
+	}, nil)
+	if err != nil {
+		return fmt.Errorf("create window: %w", err)
+	}
+	// The window is created without a host so its DPI and font slots exist
+	// before the view reads them; the view is then installed as the host.
+	view := NewView(win, mgr, loader, hist, histFile)
+	win.SetHost(view)
+
+	loader.OnChange(func(*config.Config, []string) { view.Reload() })
+	view.NewTab()
+
+	log.Printf("ohmyjo %s (config %s)", Version, loader.Path())
+	if err := win.Run(); err != nil {
+		return err
+	}
+	view.Close()
+	return nil
 }
 
 // Version returns the backend version string.
-func Version() string { return server.Version }
+const Version = "0.2.0"
 
 func waitForSignal() {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
 	<-ch
 }
-
-type embedAssets struct{ fsys fs.FS }
-
-// Open serves a frontend path from the embedded bundle; "" means index.html.
-func (e *embedAssets) Open(p string) ([]byte, string, error) {
-	if e.fsys == nil {
-		return nil, "", fs.ErrNotExist
-	}
-	name := strings.TrimPrefix(path.Clean("/"+strings.TrimPrefix(p, "/")), "/")
-	if name == "" || name == "." {
-		name = "index.html"
-	}
-	body, err := fs.ReadFile(e.fsys, name)
-	if err != nil {
-		return nil, "", err
-	}
-	return body, contentType(name), nil
-}
-
-func contentType(name string) string {
-	switch path.Ext(name) {
-	case ".html":
-		return "text/html; charset=utf-8"
-	case ".js", ".mjs":
-		return "text/javascript; charset=utf-8"
-	case ".css":
-		return "text/css; charset=utf-8"
-	case ".json", ".map":
-		return "application/json; charset=utf-8"
-	case ".svg":
-		return "image/svg+xml"
-	case ".png":
-		return "image/png"
-	case ".woff2":
-		return "font/woff2"
-	case ".woff":
-		return "font/woff"
-	case ".ico":
-		return "image/x-icon"
-	default:
-		return "application/octet-stream"
-	}
-}
-
-// ErrNoBundle is reported when the frontend was never built.
-var ErrNoBundle = errors.New("web/dist is empty: run `npm install && npm run build` inside web/")
-
-// ErrNoWebView is reported when the native webview could not be created.
-var ErrNoWebView = errors.New("could not create the WebView2 window (is the WebView2 runtime installed?)")
