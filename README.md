@@ -143,7 +143,10 @@ hide that also hides something else reads as a bug.
 that session. The panel's own `✕` sits in its header, anchored to the panel's
 inner edge, so it is top-right when the panel is docked right and top-left when
 it is docked left. The panel slides rather than snapping, and reserves no width:
-it floats over the panes, so opening it does not resize every shell.
+it floats over the panes, so opening it does not resize every shell. Its edge is
+outlined only where it meets the window frame: the boundary with the panes is
+left blank, since a stripe drawn there runs the panel's full height and reads as
+a bar wedged between the panel and the terminal.
 
 The row the window is showing (the focused pane's session, or the maximized
 pane's, since that is the one on screen) carries an accent bar on its leading

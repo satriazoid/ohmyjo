@@ -5,6 +5,7 @@ package app
 import (
 	"testing"
 
+	"ohmyjo/internal/config"
 	"ohmyjo/internal/ui"
 )
 
@@ -59,6 +60,63 @@ func TestPanelSlideRevealsFromTheInnerEdge(t *testing.T) {
 			}
 			if vis.Y != base.Y || vis.H != base.H {
 				t.Fatalf("revealed rect %+v does not span the shell's height", vis)
+			}
+		})
+	}
+}
+
+// TestPanelDrawsNoDividerBetweenItAndThePanes pins the shape the user asked
+// for: the panel's inner edge is left blank, and the hairlines it does draw sit
+// against the window frame.
+//
+// The inner edge is the one place a line is always full height and, on a theme
+// whose border contrasts with both surfaces, the loudest thing on the screen.
+// It was drawn there and read as a bar wedged between the panel and the
+// terminal. Asserting the rectangles rather than pixels keeps the check
+// runnable without a live window, which the paint path needs.
+func TestPanelDrawsNoDividerBetweenItAndThePanes(t *testing.T) {
+	vis := ui.Rect{X: 0, Y: 43, W: 260, H: 707}
+	for _, tc := range []struct {
+		name string
+		side string
+	}{
+		{"left", "left"},
+		{"right", "right"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			v := &View{dpi: 96, cfg: &config.Config{}}
+			v.cfg.Sidebar.Side = tc.side
+			edges := v.panelEdgeRects(vis)
+			if len(edges) == 0 {
+				t.Fatal("a visible panel must still carry an outline")
+			}
+			for _, e := range edges {
+				if e.Empty() {
+					t.Fatalf("side %s: empty edge %+v", tc.side, e)
+				}
+				// Every edge must lie inside the panel it outlines, or it would
+				// draw over the pane behind it.
+				if e.X < vis.X || e.Y < vis.Y ||
+					e.X+e.W > vis.X+vis.W || e.Y+e.H > vis.Y+vis.H {
+					t.Fatalf("side %s: edge %+v escapes the panel %+v", tc.side, e, vis)
+				}
+			}
+			// The side the panel faces must carry nothing vertical: a bar
+			// running the panel's height there is the divider the user saw.
+			// The frame's top and bottom hairlines cross that column at one
+			// corner cell each, which is a corner, not a divider.
+			innerX := vis.X + vis.W - 1
+			if tc.side == "right" {
+				innerX = vis.X
+			}
+			for _, e := range edges {
+				if e.H <= e.W {
+					continue
+				}
+				if innerX >= e.X && innerX < e.X+e.W {
+					t.Fatalf("side %s: vertical edge %+v draws a divider on the pane-facing column %d",
+						tc.side, e, innerX)
+				}
 			}
 		})
 	}
