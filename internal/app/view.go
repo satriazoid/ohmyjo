@@ -37,6 +37,10 @@ const (
 	// tabBarButtonWidth is the width of the strip button that hides the tab
 	// bar, so it matches the buttons it sits beside.
 	tabBarButtonWidth = 30
+	// tabPanelButtonWidth is the width of the strip button that shows and
+	// hides the side panel. It is the only mouse route to the panel: the
+	// keyboard chord can hide it too, but nothing else brings it back.
+	tabPanelButtonWidth = 30
 	// stripCollapsedHeight is the height of the chrome row once the tab bar is
 	// hidden. The row cannot go away — it is the window's title bar — but it can
 	// shrink to what the window's own buttons need and no more.
@@ -1259,11 +1263,30 @@ func (v *View) removePaneLocked(t *Tab, doomed *Pane) bool {
 	if sib == nil {
 		return false
 	}
+	// The split collapses first, so choosing the next focus cannot sight the
+	// pane that was just taken out of the tree.
+	keepFocus := t.focus != doomed && containsPane(t.root, t.focus)
 	*parent = *sib
-	t.focus = firstPane(t.root)
+	// The focus survives the removal unless the pane that had it is the one
+	// being taken away: killing a background shell from the panel must not move
+	// the keyboard off the shell the user is typing into, which is exactly what
+	// an unconditional reset to the first pane would do.
+	if !keepFocus {
+		t.focus = firstPane(t.root)
+	}
 	v.layoutLocked()
 	v.win.Invalidate()
 	return true
+}
+
+// containsPane reports whether the pane is still part of the tree.
+func containsPane(root *node, p *Pane) bool {
+	for _, other := range paneOrder(root) {
+		if other == p {
+			return true
+		}
+	}
+	return false
 }
 
 // findParent returns the split node whose direct child is target.
@@ -1494,7 +1517,9 @@ func (v *View) chromeClickLocked(x, y int) bool {
 		v.win.Invalidate()
 	case y < v.stripHeightLocked():
 		// Empty strip past the buttons: a drag here moves the window, the same
-		// as dragging a native title bar.
+		// as dragging a native title bar. With the bar hidden every click left
+		// of the buttons lands here, so the collapsed row keeps the window
+		// movable however few tabs are open.
 		v.win.StartDrag()
 	default:
 		return false
@@ -1510,12 +1535,20 @@ func (v *View) chromeClickLocked(x, y int) bool {
 // the split actions live: a keystroke that has to be remembered is not an
 // affordance, and the marker explains what the button does without a tooltip.
 func (v *View) stripButtons() []stripButton {
-	// The window's own buttons own the right end of the row, and the tab bar's
-	// toggle is pinned beside them. A flowing button that would reach either is
-	// dropped rather than drawn as a target that cannot be clicked, which is
-	// what happens once the tabs fill the strip.
+	cw, _ := v.win.ClientSize()
+	return v.stripButtonsAt(cw)
+}
+
+// stripButtonsAt lays the strip out for a client width, so the layout can be
+// checked at any window size without a window.
+func (v *View) stripButtonsAt(cw int) []stripButton {
+	// The two toggles are pinned to the row's trailing edge, and the window's
+	// own buttons own the end beyond them. A flowing button that would reach
+	// either is dropped rather than drawn as a target that cannot be clicked,
+	// which is what happens once the tabs fill the strip.
+	flowLimit, panelX, panelPresent := v.stripFlowLimitAt(cw)
+
 	x := v.newTabXLocked()
-	limit := v.tabBarButtonXLocked()
 	out := make([]stripButton, 0, 4)
 	for _, spec := range []struct {
 		width  int
@@ -1527,17 +1560,35 @@ func (v *View) stripButtons() []stripButton {
 		{splitButtonWidth, "splitDown", ""},
 	} {
 		w := v.px(spec.width)
-		if x+w > limit {
+		if x+w > flowLimit {
 			break
 		}
 		out = append(out, stripButton{x: x, width: spec.width, action: spec.action, icon: spec.icon})
 		x += w
 	}
-	// Pinned at the strip's trailing edge rather than flowed after the others,
-	// so it stays reachable however many tabs there are — and so it holds the
+	// Pinned at the strip's trailing edge rather than flowed after the tabs, so
+	// both stay reachable however many tabs there are — and so they hold the
 	// same place when the bar is hidden and restoring it is all that is left.
-	out = append(out, stripButton{x: limit, width: tabBarButtonWidth, action: "toggleTabBar", icon: v.tabBarIcon()})
+	out = append(out, stripButton{x: v.tabBarButtonXAt(cw), width: tabBarButtonWidth, action: "toggleTabBar", icon: v.tabBarIcon()})
+	if panelPresent {
+		out = append(out, stripButton{x: panelX, width: tabPanelButtonWidth, action: "toggleSidebar", icon: v.panelIcon()})
+	}
 	return out
+}
+
+// stripFlowLimitAt works out where the buttons that flow after the tabs have to
+// stop, where the panel's toggle goes, and whether it is drawn at all.
+//
+// The panel's toggle is dropped on a window too narrow for both. It is dropped
+// rather than drawn over the window buttons, and when it is present the flowing
+// buttons stop at it: it sits to the left of the tab bar's toggle, so limiting
+// them to the tab bar's would let a strip full of tabs draw over it.
+func (v *View) stripFlowLimitAt(cw int) (limit, panelX int, panelPresent bool) {
+	tabBarX := v.tabBarButtonXAt(cw)
+	if cw < v.stripCollapsedWide() {
+		return tabBarX, 0, false
+	}
+	return v.panelButtonXAt(tabBarX), v.panelButtonXAt(tabBarX), true
 }
 
 // stripButton is one chrome button on the tab strip.
@@ -1550,11 +1601,33 @@ type stripButton struct {
 	icon string
 }
 
-// tabBarButtonXLocked is the left edge of the tab bar's toggle, pinned just
-// inside the window's own buttons.
-func (v *View) tabBarButtonXLocked() int {
-	cw, _ := v.win.ClientSize()
+// stripCollapsedWide is the shortest the window can be before the collapsed
+// row's own two buttons no longer fit.
+//
+// Hiding the tab bar takes the flowing buttons away, but the window's buttons
+// and the two pinned toggles stay, so a window narrower than this would draw
+// its own restore control off the row. It is a minimum rather than a clamp —
+// the window's width is chosen by the user or by the desktop — so the callers
+// below consult it and drop what does not fit.
+func (v *View) stripCollapsedWide() int {
+	return 3*v.px(controlWidth) + v.px(tabBarButtonWidth) + v.px(tabPanelButtonWidth)
+}
+
+// tabBarButtonXAt and panelButtonXAt are where the two pinned toggles start,
+// with the client width, and then the tab bar's left edge, passed in.
+//
+// The panel's toggle sits to the left of the tab bar's, and the tab bar's is
+// pinned where it has always been: users reach for that one by position and it
+// shipped first, so the new control takes the new space rather than moving an
+// existing one. Both are drawn whether or not the bar is hidden, so neither
+// changes place either. Taking the numbers as arguments is what lets the layout
+// be checked at any window width without a window.
+func (v *View) tabBarButtonXAt(cw int) int {
 	return cw - 3*v.px(controlWidth) - v.px(tabBarButtonWidth)
+}
+
+func (v *View) panelButtonXAt(tabBarX int) int {
+	return tabBarX - v.px(tabPanelButtonWidth)
 }
 
 // tabBarIcon is the marker on that toggle: a triangle pointing the way the bar
@@ -1564,6 +1637,16 @@ func (v *View) tabBarIcon() string {
 		return "\u25b4"
 	}
 	return "\u25be"
+}
+
+// panelIcon is the marker on the panel's toggle: a filled square when the
+// panel is up and a hollow one when it is away, so the button says which state
+// it will leave behind rather than only which one it is in.
+func (v *View) panelIcon() string {
+	if v.panel.open {
+		return "\u25a0"
+	}
+	return "\u25a1"
 }
 
 // stripButtonHit resolves a point in the tab strip to the button under it. The
@@ -1802,23 +1885,14 @@ func (v *View) setFocusLocked(p *Pane) {
 // ---------------------------------------------------------------------------
 // Layout
 
-// toggleTabBarLocked hides or restores the tab bar.
+// toggleTabBarLocked hides the tab strip's row of tabs, or brings it back.
 //
-// Hiding it reclaims the strip's height for the terminals, which is the whole
-// point: a user with one tab and no intention of opening another should not pay
-// a row of chrome for it. The toggling itself is delivered by the button on the
-// strip, and that button is drawn in the collapsed row too, so the bar can be
-// brought back with the mouse alone.
+// It no longer touches the panel. The strip carries a toggle for each of the
+// two, so hiding the bar can leave the sessions list and its own toggle exactly
+// where they were: the user asked to put the tab titles away, not to lose the
+// panel as well, and a hide that also hides something else reads as a bug.
 func (v *View) toggleTabBarLocked() {
 	v.tabBarHidden = !v.tabBarHidden
-	// The panel hangs below the strip, so it has to be taken away with the bar
-	// it belongs to: leaving it up would hide the one row the window keeps for
-	// its own buttons, and the user would be looking at a sessions list with no
-	// way to dismiss it but the strip toggle they just pressed to clear the
-	// screen. Animating it shut is what closeSidebarLocked already does.
-	if v.tabBarHidden {
-		v.closeSidebarLocked()
-	}
 	// The panes' share of the window changed, so every grid has to be re-laid
 	// out and its ConPTY told the new size.
 	v.layoutLocked()

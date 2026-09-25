@@ -72,6 +72,11 @@ type panelRow struct {
 	rect ui.Rect
 	kill ui.Rect
 	info session.Info
+	// active is true for the session the focused pane runs, which is the one
+	// the rest of the window is showing. Without it the list is a set of names
+	// with no answer to "which one am I looking at", and a user who has just
+	// split a pane cannot tell the new shell from the old one.
+	active bool
 }
 
 // panelShellRect is the panel at its full width, in physical pixels.
@@ -238,19 +243,43 @@ func (v *View) panelRowsLocked() []panelRow {
 	}
 	y := vis.Y + v.px(panelHeaderHeight)
 	limit := vis.Y + vis.H
+	active := v.focusedSessionIDLocked()
 	for _, info := range infos {
 		if y+rowH > limit {
 			break
 		}
 		row := panelRow{
-			rect: ui.Rect{X: vis.X + pad, Y: y, W: vis.W - 2*pad, H: rowH},
-			info: info,
+			rect:   ui.Rect{X: vis.X + pad, Y: y, W: vis.W - 2*pad, H: rowH},
+			info:   info,
+			active: active != "" && info.ID == active,
 		}
 		row.kill = ui.Rect{X: row.rect.X + row.rect.W - killW, Y: y, W: killW, H: rowH}
 		v.panel.rows = append(v.panel.rows, row)
 		y += rowH + gap
 	}
 	return v.panel.rows
+}
+
+// focusedSessionIDLocked is the session the focused pane runs: the one the
+// window is actually showing. It is the single answer to "which session is
+// active", used both to mark the panel's row and to decide whether a row the
+// user picked is already the one in front.
+//
+// A maximized pane covers its tab's other panes, so it is the one being looked
+// at regardless of where the focus happens to be.
+func (v *View) focusedSessionIDLocked() string {
+	if v.active < 0 || v.active >= len(v.tabs) {
+		return ""
+	}
+	t := v.tabs[v.active]
+	p := t.focus
+	if t.maximized != nil {
+		p = t.maximized
+	}
+	if p == nil {
+		return ""
+	}
+	return p.ID()
 }
 
 // panelRowHit resolves a point to the row under it and, when the point landed on
@@ -287,7 +316,44 @@ func (v *View) panelClickLocked(x, y int) bool {
 		v.killSessionLocked(row.info.ID)
 		return true
 	}
+	// A row that was not killed selects its session: the user opened the list
+	// to see what is running, so pointing at a name has to be the way to get to
+	// it. A row already in front is a no-op rather than a relayout.
+	if ok {
+		v.revealSessionLocked(row.info.ID)
+	}
 	return true
+}
+
+// revealSessionLocked brings the pane that runs id into view and focuses it.
+//
+// The pane may live in a background tab or behind a maximized sibling, so
+// showing it is not just a focus change: the tab is selected, the maximized
+// pane steps aside, and the pane is given focus. Selecting a session that is
+// already in front changes nothing, so clicking the active row does not
+// reshuffle the layout under the user's cursor.
+func (v *View) revealSessionLocked(id string) {
+	if id == "" || id == v.focusedSessionIDLocked() {
+		return
+	}
+	for i, t := range v.tabs {
+		for _, p := range paneOrder(t.root) {
+			if p.ID() != id {
+				continue
+			}
+			v.active = i
+			t.focus = p
+			// A maximized pane hides the rest of its tab. Focusing a hidden
+			// pane under it would leave the user looking at the wrong shell.
+			if t.maximized != nil && t.maximized != p {
+				t.maximized = nil
+			}
+			v.blinkOn = true
+			v.layoutLocked()
+			v.win.Invalidate()
+			return
+		}
+	}
 }
 
 // killSessionLocked ends the shell a panel row stands for.
@@ -383,26 +449,41 @@ func (v *View) paintPanel(s ui.Surface) {
 	// the user points at rather than as a read-only report.
 	for _, row := range rows {
 		bg := v.pal.UIBackgroundAlt
-		if hx >= row.rect.X && hx < row.rect.X+row.rect.W && hy >= row.rect.Y && hy < row.rect.Y+row.rect.H {
+		fg := v.pal.UIForeground
+		// The row the window is showing is filled with the same lighter
+		// surface the pointer uses, so the list answers "which one am I looking
+		// at" without the user matching names against the tab strip. A row that
+		// is both active and under the pointer keeps that fill: it is already
+		// the one being shown, and flashing it would promise a change that a
+		// click does not make.
+		if row.active || (hx >= row.rect.X && hx < row.rect.X+row.rect.W &&
+			hy >= row.rect.Y && hy < row.rect.Y+row.rect.H) {
 			bg = v.pal.UIBorder
 		}
 		s.Fill(row.rect.X, row.rect.Y, row.rect.W, row.rect.H, bg)
 
 		// A dead session is still listed: its exit code is the reason the user
 		// opened the panel, and its kill button is what clears the row.
-		fg := v.pal.UIForeground
 		status := "running"
 		if row.info.Status != "running" {
 			fg = v.pal.UIForegroundDim
 			status = "exited"
+		}
+		// The stronger marker is a leading accent bar, the same one the active
+		// tab puts on its leading edge, so a fill that a hover also uses cannot
+		// be mistaken for the active state on its own.
+		bw := 0
+		if row.active {
+			bw = v.px(2)
+			s.Fill(row.rect.X, row.rect.Y, bw, row.rect.H, v.pal.UIAccent)
 		}
 		fm = s.SetFont(ui.FontUI)
 		label := row.info.Name
 		if label == "" {
 			label = row.info.Profile
 		}
-		text := clipText(s, label+"  "+status, row.rect.W-v.px(panelKillWidth)-pad)
-		s.Text(row.rect.X+pad, row.rect.Y+(row.rect.H-fm.TextH())/2, text,
+		text := clipText(s, label+"  "+status, row.rect.W-v.px(panelKillWidth)-pad-bw)
+		s.Text(row.rect.X+pad+bw, row.rect.Y+(row.rect.H-fm.TextH())/2, text,
 			ui.Style{FG: fg, BG: bg})
 
 		// The kill button is the row's own "x", drawn in the same accent the

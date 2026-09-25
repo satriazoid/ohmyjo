@@ -123,20 +123,34 @@ missing from `keybindings` keeps its default.
 
 **Tab strip.** One click selects a tab; the `×` on the active tab closes it. The
 `+` opens a tab, and the two diagrams beside it split the focused pane right and
-down. At the trailing edge, just inside the window buttons, a small triangle
-hides and restores the tab bar.
+down. At the trailing edge, just inside the window buttons, two buttons are
+pinned: a small triangle hides and restores the tab bar, and a small square shows
+and hides the side panel — filled while the panel is up, hollow while it is away.
+
+The two are pinned rather than flowed after the tabs, and they trade places
+exactly when the bar is hidden, so the control that brings the bar back sits
+where it was drawn. With the bar hidden there are no tabs, so the whole row to
+the left of them is empty; dragging there still moves the window, because that
+row is the frameless window's title bar.
 
 Hiding the tab bar collapses the strip to what the window's own buttons need
 rather than removing the row: the row *is* the frameless window's title bar, so
-without it there would be no mouse way to move the window or close it. While the
-bar is hidden it also closes the side panel, so the sessions list cannot cover
-the one row that remains.
+without it there would be no mouse way to move the window or close it. It does
+not touch the side panel: the panel has its own toggle on the same row, and a
+hide that also hides something else reads as a bug.
 
 **Side panel.** Lists the running sessions with their state. Each row's `×` ends
 that session. The panel's own `×` sits in its header, anchored to the panel's
 inner edge, so it is top-right when the panel is docked right and top-left when
 it is docked left. The panel slides rather than snapping, and reserves no width:
 it floats over the panes, so opening it does not resize every shell.
+
+The row the window is showing — the focused pane's session, or the maximized
+pane's, since that is the one on screen — carries an accent bar on its leading
+edge, the same marker the active tab uses. Clicking any other row brings that
+session forward: its tab comes to the front, its pane takes the focus, and a
+maximized sibling steps aside. Clicking the row that is already in front changes
+nothing. Ending a background session leaves the keyboard where it was.
 
 **Panes.** Drag a split's divider to resize it. Click a pane to focus it; the
 focused pane of a split is outlined. Selecting text in a pane copies it when
